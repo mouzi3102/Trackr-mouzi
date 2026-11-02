@@ -15,6 +15,12 @@ kotlin {
             // :core:designsystem 的 Compose 资源图标（vectorResource(Res.drawable.ic_xxx)）
             implementation(libs.compose.mp.components.resources)
         }
+        getByName("androidHostTest").dependencies {
+            implementation(kotlin("test-junit"))
+            // 真实网络复现测试需要 Robolectric 提供 android.os.Build 等（Ktor/OkHttp 启动时探测平台）
+            implementation(libs.robolectric)
+            runtimeOnly("org.robolectric:android-all:14-robolectric-10818077")
+        }
     }
 }
 

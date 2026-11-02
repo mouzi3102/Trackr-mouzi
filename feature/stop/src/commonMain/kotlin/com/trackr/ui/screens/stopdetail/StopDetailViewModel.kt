@@ -237,9 +237,17 @@ class StopDetailViewModel(
             )
 
             result.onSuccess { rawStopList ->
+                // 兜底：从搜索结果进入的车站可能只有 stationId 或只有站名+坐标，首查为空时
+                // 用站名 + 坐标调「附近站」反向解析真实站台（拿到 physicalStId / namesakeStId）再查一次，
+                // 解决「搜索出地址点不进去」的线路信息为空问题
+                val resolved = if (rawStopList.isEmpty() && hasCoordinatesToResolve()) {
+                    resolveStopByNearby(city, queryStopId, queryPhysicalStId, userLoc)
+                } else {
+                    rawStopList
+                }
                 // 若站点缺少 distanceMeters，且用户位置已知，计算实际测地距离
                 val stopList = if (userLoc != null) {
-                    rawStopList.map { s ->
+                    resolved.map { s ->
                         if ((s.distanceMeters ?: 0) <= 0) {
                             val dist = RouteProjectionMath.calculateDistanceMeters(
                                 userLoc.first, userLoc.second, s.wgsLat, s.wgsLng
@@ -247,7 +255,7 @@ class StopDetailViewModel(
                             s.copy(distanceMeters = dist)
                         } else s
                     }
-                } else rawStopList
+                } else resolved
 
                 val resolvedName = stopList.firstOrNull()?.name?.takeIf { it.isNotBlank() }
                     ?: initialStopName.ifBlank { "站点详情" }
@@ -286,6 +294,46 @@ class StopDetailViewModel(
         } finally {
             activeLoads.decrementAndFetch()
         }
+    }
+
+    /** 是否有坐标 + 站名可用于「附近站」反向解析（站台 id 缺失时的兜底前提） */
+    private fun hasCoordinatesToResolve(): Boolean =
+        stationLat > 0.0 && stationLng > 0.0 && initialStopName.isNotBlank()
+
+    /**
+     * 反向解析兜底：搜索结果站可能只有 stationId（或只有站名+坐标）而缺少 physicalStId /
+     * namesakeStId，直接查线路会空。改用站名 + 坐标调「附近站」，找同名真实站台后重查线路。
+     */
+    private suspend fun resolveStopByNearby(
+        city: TransitCity,
+        queryStopId: String?,
+        queryPhysicalStId: String?,
+        userLoc: Pair<Double, Double>?
+    ): List<NearbyStop> {
+        if (!hasCoordinatesToResolve()) return emptyList()
+        if (queryStopId.isNullOrBlank() && queryPhysicalStId.isNullOrBlank()) return emptyList()
+        val nearby = runCatching {
+            realtime.getNearbyStops(city, stationLat, stationLng, limit = 30).getOrNull().orEmpty()
+        }.getOrDefault(emptyList())
+        val nameKey = initialStopName.trim()
+        val matched = if (nameKey.isNotBlank()) {
+            nearby.firstOrNull {
+                val n = it.name.trim()
+                n == nameKey || n.contains(nameKey) || nameKey.contains(n)
+            }
+        } else null
+        if (matched == null) return emptyList()
+        return realtime.getStopDetail(
+            city = city,
+            stopId = matched.stopId,
+            stopName = matched.name,
+            physicalStId = matched.physicalStId,
+            namesakeStId = matched.namesakeStId,
+            stationLat = matched.wgsLat,
+            stationLng = matched.wgsLng,
+            userLat = userLoc?.first,
+            userLng = userLoc?.second
+        ).getOrNull().orEmpty()
     }
 
     fun selectStopIndex(index: Int) {

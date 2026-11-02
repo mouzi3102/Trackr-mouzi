@@ -458,4 +458,76 @@ class SearchViewModelTest {
 
         assertEquals(listOf(shanghai, beijing), realtime.searchCalls.map { it.city })
     }
+
+    // ---- v0.0.5：跨县/市搜索（「城市名 + 关键词」前缀解析） ----
+
+    private val suzhou = TransitCity(cityId = "139", cityName = "宿州市", pinyin = "suzhou", province = "安徽省")
+    private val lingbi = TransitCity(cityId = "", cityName = "灵璧县", mygolbsCityCode = "341323", province = "安徽省")
+
+    /** 配置支持的县/市列表并建 VM（等城市列表加载完成） */
+    private fun TestScope.createViewModelWithCities(cities: List<TransitCity>): SearchViewModel {
+        realtime.supportedCitiesOverride = Result.success(cities)
+        val vm = createViewModel()
+        testScheduler.runCurrent()
+        return vm
+    }
+
+    @Test
+    fun cityPrefixQuery_searchesTargetCity_andRecordsSearchedCity() = runTest(main.dispatcher) {
+        val viewModel = createViewModelWithCities(listOf(suzhou, lingbi))
+
+        searchAndWait(viewModel, "灵璧 3路")
+
+        val call = realtime.searchCalls.single()
+        assertEquals("灵璧县", call.city.cityName, "带城市前缀时切到目标县/市搜索")
+        assertEquals("3路", call.keyword, "关键词去掉城市前缀")
+        assertEquals("灵璧县", viewModel.uiState.value.searchedCity?.cityName, "记录搜索结果所属城市供导航用")
+    }
+
+    @Test
+    fun cityPrefixQuery_withCitySuffix_matchesFullCityName() = runTest(main.dispatcher) {
+        val viewModel = createViewModelWithCities(listOf(suzhou, lingbi))
+
+        searchAndWait(viewModel, "宿州市 1路")
+
+        val call = realtime.searchCalls.single()
+        assertEquals("宿州市", call.city.cityName)
+        assertEquals("1路", call.keyword)
+    }
+
+    @Test
+    fun plainQuery_usesCurrentCity_withoutSearchedCity() = runTest(main.dispatcher) {
+        val viewModel = createViewModelWithCities(listOf(suzhou, lingbi))
+
+        searchAndWait(viewModel, "双沟")
+
+        val call = realtime.searchCalls.single()
+        assertEquals(shanghai, call.city, "无城市前缀仍按当前已选城市搜索")
+        assertNull(viewModel.uiState.value.searchedCity)
+    }
+
+    @Test
+    fun unknownCityPrefix_usesCurrentCity() = runTest(main.dispatcher) {
+        val viewModel = createViewModelWithCities(listOf(suzhou, lingbi))
+
+        // 「白云」不是城市目录里的城市，不应误切城
+        searchAndWait(viewModel, "白云 站")
+
+        val call = realtime.searchCalls.single()
+        assertEquals(shanghai, call.city)
+        assertEquals("白云 站", call.keyword)
+        assertNull(viewModel.uiState.value.searchedCity)
+    }
+
+    @Test
+    fun cityPrefixQuery_clickNavigationCity_isSearchedCity() = runTest(main.dispatcher) {
+        val viewModel = createViewModelWithCities(listOf(suzhou, lingbi))
+
+        searchAndWait(viewModel, "合肥 1路")
+
+        // 未收录「合肥」时回落当前城市
+        val call = realtime.searchCalls.single()
+        assertEquals(shanghai, call.city)
+        assertNull(viewModel.uiState.value.searchedCity)
+    }
 }

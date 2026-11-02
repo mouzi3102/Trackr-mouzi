@@ -40,7 +40,7 @@ sealed interface AboutEvent {
 }
 
 /** 项目主页 */
-const val PROJECT_URL: String = "https://github.com/5151561/Trackr"
+const val PROJECT_URL: String = "https://github.com/mouzi3102/Trackr-mouzi"
 
 /**
  * @param updateChecker 应用内更新检查；平台没有（iOS）时为 null，页面不显示「检查更新」

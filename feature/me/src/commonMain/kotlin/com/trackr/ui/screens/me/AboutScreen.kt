@@ -177,7 +177,7 @@ fun AboutScreen(
 
                     LinkRow(
                         title = "GitHub",
-                        value = "5151561/Trackr",
+                        value = "mouzi3102/Trackr-mouzi",
                         onClick = { uriHandler.openUri(PROJECT_URL) }
                     )
 

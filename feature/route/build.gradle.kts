@@ -16,10 +16,8 @@ kotlin {
             // 第 24 步：规划页进 commonMain，图标用 :core:designsystem 的 Compose 资源
             implementation(libs.compose.mp.components.resources)
         }
-        androidMain.dependencies {
-            // 高德 3D 地图 + 定位 + 搜索一体化 SDK
-            implementation(libs.amap.search)
-        }
+        // 不含高德 SDK 的精简构建：androidMain 无额外依赖
+        // （原高德 3D 地图 + 定位 + 搜索一体化 SDK 已移除）
     }
 }
 

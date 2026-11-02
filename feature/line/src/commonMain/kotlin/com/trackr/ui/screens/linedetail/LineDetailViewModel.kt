@@ -34,6 +34,7 @@ import com.trackr.ui.screens.linedetail.components.stationArrivalState
 import com.trackr.ui.util.FixedDelayPollingStrategy
 import com.trackr.ui.util.PollingCoordinator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -223,10 +224,10 @@ class LineDetailViewModel(
 
     init {
         viewModelScope.launch {
-            favorites.favorites.collectLatest { checkFavoriteState(it) }
+            favorites.favorites.collectLatest { runCatching { checkFavoriteState(it) } }
         }
         viewModelScope.launch {
-            favorites.favoriteItems.collectLatest { refreshFavoriteGroup(it) }
+            favorites.favoriteItems.collectLatest { runCatching { refreshFavoriteGroup(it) } }
         }
         viewModelScope.launch {
             favorites.favoriteGroups.collectLatest { groups ->
@@ -251,23 +252,29 @@ class LineDetailViewModel(
     }
 
     private suspend fun showCachedStops() {
-        val city = settings.selectedCity.value
-        val key = LineStopsCache.keyOf(currentSource, city.cityId, city.mygolbsCityCode.orEmpty(), currentLineId)
-        val cached = lineStopsCache.read(key) ?: return
-        val static = LineStatic(cached.line, cached.reverseDirection, cached.stops)
-        lastCachedStatic = static
-        _uiState.update { state ->
-            if (state.static != null) {
-                state
-            } else {
-                state.copy(
-                    static = static,
-                    selectedStop = state.selectedStop
-                        ?: initialTargetOrder?.takeIf { it > 0 }?.let { order -> cached.stops.find { it.order == order } }
-                )
+        try {
+            val city = settings.selectedCity.value
+            val key = LineStopsCache.keyOf(currentSource, city.cityId, city.mygolbsCityCode.orEmpty(), currentLineId)
+            val cached = lineStopsCache.read(key) ?: return
+            val static = LineStatic(cached.line, cached.reverseDirection, cached.stops)
+            lastCachedStatic = static
+            _uiState.update { state ->
+                if (state.static != null) {
+                    state
+                } else {
+                    state.copy(
+                        static = static,
+                        selectedStop = state.selectedStop
+                            ?: initialTargetOrder?.takeIf { it > 0 }?.let { order -> cached.stops.find { it.order == order } }
+                    )
+                }
             }
+            checkFavoriteState(favorites.favorites.value)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            // 缓存读取失败只影响「先显示」的加速，不影响线路加载
         }
-        checkFavoriteState(favorites.favorites.value)
     }
 
     /**
@@ -358,27 +365,60 @@ class LineDetailViewModel(
             )
 
             result.onSuccess { detail ->
-                val selected = _uiState.value.selectedStop
-                // 初次加载或无选中站时，计算默认选中的候车站（首车前面一站）；用户已经在缓存的站表上点过站就保留
-                val targetStop = if (selected == null || (isInitial && !userPickedStop)) {
-                    if (initialTargetOrder != null && initialTargetOrder > 0) {
-                        detail.stops.find { it.order == initialTargetOrder } ?: calculateDefaultStop(detail)
+                autoRetryCount = 0
+                try {
+                    val selected = _uiState.value.selectedStop
+                    // 初次加载或无选中站时，计算默认选中的候车站（首车前面一站）；用户已经在缓存的站表上点过站就保留
+                    val targetStop = if (selected == null || (isInitial && !userPickedStop)) {
+                        if (initialTargetOrder != null && initialTargetOrder > 0) {
+                            detail.stops.find { it.order == initialTargetOrder } ?: calculateDefaultStop(detail)
+                        } else {
+                            calculateDefaultStop(detail)
+                        }
                     } else {
-                        calculateDefaultStop(detail)
+                        detail.stops.find { it.order == selected.order } ?: calculateDefaultStop(detail)
                     }
-                } else {
-                    detail.stops.find { it.order == selected.order } ?: calculateDefaultStop(detail)
-                }
 
-                applyDetail(detail, targetStop)
+                    applyDetail(detail, targetStop)
 
-                refreshFallbackNextDeparture(detail, targetStop)
+                    // 时刻表补全属非关键后处理：失败只记日志，不影响页面数据展示
+                    try {
+                        refreshFallbackNextDeparture(detail, targetStop)
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (e: Exception) {
+                        println("Trackr: refreshFallbackNextDeparture failed: $e")
+                    }
 
-                // 初次加载未指定候车站时，需要再按默认候车站请求一次才能拿到到该站的精确 ETA；
-                // 在同一协程内顺序执行并重新计时，避免轮询紧接着再发一次
-                if (isInitial && targetStop != null && targetOrder == null) {
-                    pollingCoordinator.restart()
-                    fetchLineDetail(isInitial = false, targetOrderOverride = targetStop.order)
+                    // 初次加载未指定候车站时，需要再按默认候车站请求一次才能拿到到该站的精确 ETA；
+                    // 在同一协程内顺序执行并重新计时，避免轮询紧接着再发一次
+                    if (isInitial && targetStop != null && targetOrder == null) {
+                        pollingCoordinator.restart()
+                        fetchLineDetail(isInitial = false, targetOrderOverride = targetStop.order)
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (ex: Exception) {
+                    // 核心数据处理失败：真机上多为冷启动初期瞬时状态（如收藏仓/缓存尚未就绪），
+                    // 短暂退避后自动重试（上限 MAX_AUTO_RETRY），避免"打开 APP 立刻进线路"的瞬时误报；
+                    // 仍失败才转为页面错误提示
+                    ex.printStackTrace()
+                    println("Trackr: LineDetail onSuccess processing failed: $ex")
+                    if (autoRetryCount < MAX_AUTO_RETRY) {
+                        autoRetryCount += 1
+                        _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
+                        delay(AUTO_RETRY_DELAY_MS)
+                        fetchLineDetail(isInitial = isInitial, targetOrderOverride = targetOrderOverride)
+                    } else {
+                        autoRetryCount = 0
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                isRefreshing = false,
+                                errorMessage = "线路数据加载异常：${ex.message ?: "未知错误"}"
+                            )
+                        }
+                    }
                 }
             }.onFailure { ex ->
                 _uiState.update {
@@ -421,9 +461,13 @@ class LineDetailViewModel(
                 errorMessage = null
             )
         }
-        checkFavoriteState(favorites.favorites.value)
-        refreshFavoriteGroup(favorites.favoriteItems.value)
-        writeStopsCache(newStatic)
+        // 收藏/缓存等后处理失败不影响页面数据展示，只记录日志
+        runCatching { checkFavoriteState(favorites.favorites.value) }
+            .onFailure { println("Trackr: checkFavoriteState failed: $it") }
+        runCatching { refreshFavoriteGroup(favorites.favoriteItems.value) }
+            .onFailure { println("Trackr: refreshFavoriteGroup failed: $it") }
+        runCatching { writeStopsCache(newStatic) }
+            .onFailure { println("Trackr: writeStopsCache failed: $it") }
     }
 
     private fun writeStopsCache(static: LineStatic) {
@@ -438,6 +482,9 @@ class LineDetailViewModel(
 
     /** 每条线路方向的时刻表缓存，避免 10 秒轮询时反复拉取 */
     private val timetableCache = mutableMapOf<String, LineTimetable>()
+
+    /** 核心数据处理连续失败次数（自动重试用，成功或达到上限后复位） */
+    private var autoRetryCount = 0
 
     /**
      * 候车站前方无车且实时接口未给下一班时间时，用时刻表补出下一班始发时间。
@@ -830,6 +877,10 @@ class LineDetailViewModel(
 
         /** 追踪时提前几站提醒（原预警 chips 的默认值；全局设置见第 25 步） */
         const val DEFAULT_ALERT_THRESHOLD_STOPS = 2
+
+        /** 核心数据处理失败后的自动重试上限与退避间隔 */
+        const val MAX_AUTO_RETRY = 2
+        const val AUTO_RETRY_DELAY_MS = 1_200L
     }
 }
 

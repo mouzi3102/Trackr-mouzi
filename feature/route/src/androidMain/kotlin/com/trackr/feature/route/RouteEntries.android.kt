@@ -10,7 +10,6 @@ import com.trackr.core.domain.platform.AmapSdkKeyApplier
 import com.trackr.core.domain.platform.MapSdkInitializer
 import com.trackr.core.navigation.TrackrNavigator
 import com.trackr.core.navigation.ScreenKey
-import com.trackr.data.remote.amap.AmapSdkTransitService
 import com.trackr.data.remote.amap.AndroidAmapRouteGateway
 import com.trackr.data.remote.amap.AndroidAmapSdkKeyApplier
 import com.trackr.data.remote.amap.AndroidMapSdkInitializer
@@ -19,7 +18,6 @@ import com.trackr.ui.screens.routedetail.RouteDetailRoute
 import com.trackr.ui.screens.routedetail.RouteDetailViewModel
 import com.trackr.ui.screens.routeplan.RoutePlanRoute
 import com.trackr.ui.screens.routeplan.RoutePlanViewModel
-import org.koin.android.ext.koin.androidContext
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.dsl.module
 
@@ -63,16 +61,14 @@ actual fun EntryProviderScope<NavKey>.routeEntries(navigator: TrackrNavigator) {
     }
 }
 
-/** 高德 Android SDK 相关的绑定（§2.9：SDK 封装在 :feature:route 的 androidMain） */
+/** 高德通道绑定（不含高德 SDK 的精简构建）：Web 服务 + 空实现 */
 val routeAndroidModule = module {
-    // SDK 优先、失败才走 Web 的高德通道（原 FavoritesGroupViewModel 的内部类）；SDK 建不出来时只走 Web
     single<AmapRouteGateway> {
         AndroidAmapRouteGateway(
-            amapSdkService = runCatching { AmapSdkTransitService(androidContext()) }.getOrNull(),
             amapApiClient = get(),
             amapKeys = get()
         )
     }
-    single<AmapSdkKeyApplier> { AndroidAmapSdkKeyApplier(androidContext()) }
-    single<MapSdkInitializer> { AndroidMapSdkInitializer(androidContext()) }
+    single<AmapSdkKeyApplier> { AndroidAmapSdkKeyApplier() }
+    single<MapSdkInitializer> { AndroidMapSdkInitializer() }
 }

@@ -2,6 +2,7 @@
 
 package com.trackr.ui.screens.me
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
@@ -36,9 +38,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -430,13 +429,16 @@ private fun SwitchRow(
     }
 }
 
-/** 「数据来源」：车来了 / 掌上公交 两段 */
+/** 「数据来源」：车来了 / 掌上公交 两段胶囊（各配品牌色） */
 @Composable
 private fun EngineModeRow(
     selected: EngineMode,
     onSelect: (EngineMode) -> Unit
 ) {
-    val options = listOf(EngineMode.CHELAILE to stringResource(Res.string.data_source_chelaile), EngineMode.MYGOLBS to stringResource(Res.string.data_source_mygolbs))
+    val options = listOf(
+        EngineMode.CHELAILE to stringResource(Res.string.data_source_chelaile),
+        EngineMode.MYGOLBS to stringResource(Res.string.data_source_mygolbs)
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -446,18 +448,35 @@ private fun EngineModeRow(
     ) {
         RowTexts(title = stringResource(MeRes.string.me_data_source), subtitle = null, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(12.dp))
-        SingleChoiceSegmentedButtonRow {
-            options.forEachIndexed { index, (mode, label) ->
-                SegmentedButton(
-                    selected = selected == mode,
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (mode, label) ->
+                val palette = enginePalette(mode)
+                val isSelected = selected == mode
+                Surface(
                     onClick = { onSelect(mode) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-                    icon = {},
-                    label = { Text(text = label, style = MaterialTheme.typography.labelMedium) }
-                )
+                    shape = RoundedCornerShape(percent = 50),
+                    color = if (isSelected) palette.container else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = if (isSelected) null else BorderStroke(1.dp, palette.container.copy(alpha = 0.45f)),
+                    modifier = Modifier.heightIn(min = 36.dp)
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (isSelected) palette.content else palette.container,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
             }
         }
     }
+}
+
+/** 数据源品牌配色：车来了=活力橙，掌上公交=公交蓝 */
+private data class EnginePalette(val container: Color, val content: Color)
+
+private fun enginePalette(mode: EngineMode): EnginePalette = when (mode) {
+    EngineMode.CHELAILE -> EnginePalette(container = Color(0xFFF58220), content = Color.White)
+    EngineMode.MYGOLBS -> EnginePalette(container = Color(0xFF1565C0), content = Color.White)
 }
 
 /** 单选对话框：点选项即选中并关闭；只有「取消」按钮 */

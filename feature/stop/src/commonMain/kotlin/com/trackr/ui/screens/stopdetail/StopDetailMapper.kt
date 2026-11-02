@@ -78,7 +78,7 @@ internal fun rowsOf(cityId: String, stop: NearbyStop?, favoriteIds: Set<String>)
             hours = hoursText(line.firstTime, line.lastTime),
             arrival = arrivalOf(status),
             isFavorite = line.lineId.isNotBlank() && favoriteIds.contains(favoriteIdOf(cityId, status)),
-            selectable = line.lineId.isNotBlank() && status.targetOrder > 0,
+            selectable = line.lineId.isNotBlank(),
             targetOrder = status.targetOrder,
             stopId = stop?.stopId.orEmpty(),
             source = line.source

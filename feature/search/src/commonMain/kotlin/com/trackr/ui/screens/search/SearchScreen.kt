@@ -146,20 +146,50 @@ fun SearchScreen(
                     .padding(innerPadding)
             )
 
-            !state.isSearching && result != null && result.lines.isEmpty() && result.stops.isEmpty() -> EmptyStateView(
-                message = stringResource(SearchRes.string.search_empty, queryText.trim()),
-                subMessage = stringResource(SearchRes.string.search_empty_hint),
-                icon = vectorResource(Res.drawable.ic_search),
+            !state.isSearching && result != null && result.lines.isEmpty() && result.stops.isEmpty() -> Column(
                 modifier = Modifier
+                    .fillMaxSize()
                     .consumeWindowInsets(innerPadding)
                     .padding(innerPadding)
-            )
+            ) {
+                state.searchedCity?.let { city ->
+                    Text(
+                        text = "在 ${city.cityName} 中搜索",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    )
+                }
+                EmptyStateView(
+                    message = stringResource(SearchRes.string.search_empty, queryText.trim()),
+                    subMessage = stringResource(SearchRes.string.search_empty_hint),
+                    icon = vectorResource(Res.drawable.ic_search),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                )
+            }
 
-            else -> SearchResultList(
-                result = result,
-                innerPadding = innerPadding,
-                onEvent = onEvent
-            )
+            else -> Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .consumeWindowInsets(innerPadding)
+                    .padding(innerPadding)
+            ) {
+                state.searchedCity?.let { city ->
+                    Text(
+                        text = "在 ${city.cityName} 中搜索",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    )
+                }
+                SearchResultList(
+                    result = result,
+                    innerPadding = PaddingValues(),
+                    onEvent = onEvent
+                )
+            }
         }
     }
 }

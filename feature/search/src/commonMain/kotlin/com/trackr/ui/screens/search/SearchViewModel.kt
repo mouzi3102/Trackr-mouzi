@@ -34,7 +34,12 @@ data class SearchUiState(
     val searchQuery: String = "",
     val searchResult: TransitSearchResult? = null,
     val isSearching: Boolean = false,
-    val searchHistory: List<String> = emptyList()
+    val searchHistory: List<String> = emptyList(),
+    /**
+     * 跨县/市搜索（输入「城市名 + 关键词」，如「灵璧 3路」）时实际使用的目标城市；
+     * 为空表示按当前已选城市搜。结果行点击导航时用它的 cityId，保证进对城市的线路/站点详情。
+     */
+    val searchedCity: TransitCity? = null
 )
 
 /**
@@ -63,7 +68,15 @@ class SearchViewModel(
 
     private var searchJob: Job? = null
 
+    /** 支持的城市列表（车来了 + 掌上公交聚合），跨县/市搜索的前缀匹配用 */
+    private var supportedCities: List<TransitCity> = emptyList()
+
     init {
+        // 加载城市列表，供「城市名 + 关键词」跨县/市搜索匹配（失败时保持空，前缀解析自动回落当前城市）
+        viewModelScope.launch {
+            supportedCities = realtime.getSupportedCities().getOrDefault(emptyList())
+        }
+
         // 进程重建后恢复输入框文字，并按它重搜（结果不存，太大）
         val restoredQuery = savedStateHandle.get<String>(KEY_QUERY).orEmpty()
         if (restoredQuery.isNotEmpty()) updateSearchQuery(restoredQuery)
@@ -72,7 +85,7 @@ class SearchViewModel(
         viewModelScope.launch {
             settings.selectedCity.collect { city ->
                 _uiState.update {
-                    if (it.currentCity == city) it else it.copy(currentCity = city, searchResult = null)
+                    if (it.currentCity == city) it else it.copy(currentCity = city, searchResult = null, searchedCity = null)
                 }
             }
         }
@@ -112,20 +125,52 @@ class SearchViewModel(
         searchJob = viewModelScope.launch {
             delay(SEARCH_DEBOUNCE_MS) // 300ms 防抖
             _uiState.update { it.copy(isSearching = true) }
-            val city = settings.selectedCity.value
+            // 跨县/市搜索：「城市名 + 关键词」（如「灵璧 3路」「合肥 1路」）自动切目标城市
+            val (targetCity, keyword, cityPrefix) = resolveCityPrefix(query.trim())
+            val city = targetCity ?: settings.selectedCity.value
             val (lat, lng) = searchCoordinates(city)
             val res = realtime.search(
                 city = city,
-                keyword = query.trim(),
+                keyword = keyword,
                 userLat = lat.takeIf { it > 0.0 },
                 userLng = lng.takeIf { it > 0.0 }
             )
             _uiState.update {
                 it.copy(
                     isSearching = false,
-                    searchResult = res.getOrNull()
+                    searchResult = res.getOrNull(),
+                    searchedCity = if (cityPrefix != null) city else null
                 )
             }
+        }
+    }
+
+    /**
+     * 解析「城市名 + 分隔符 + 关键词」形式的搜索词。
+     * 分隔符只认空格（半/全角）、·、-、_：无分隔符（如「灵璧3路」）不解析，避免把普通站名误判成城市前缀。
+     * 返回：目标城市（没匹配到就是 null）、去掉前缀后的关键词、匹配到的城市词（null 表示未跨城）。
+     */
+    private fun resolveCityPrefix(query: String): Triple<TransitCity?, String, String?> {
+        val trimmed = query.trim()
+        if (trimmed.length <= 2) return Triple(null, trimmed, null)
+        val match = CITY_PREFIX_REGEX.matchEntire(trimmed) ?: return Triple(null, trimmed, null)
+        val cityWord = match.groupValues[1]
+        val rest = match.groupValues[2].trim()
+        if (rest.isBlank()) return Triple(null, trimmed, null)
+        val city = matchCity(cityWord)
+        return if (city != null) Triple(city, rest, cityWord) else Triple(null, trimmed, null)
+    }
+
+    /** 在城市列表里匹配「城市词」：支持全名 / 去「市县区」后缀 / 前后缀包含三种写法 */
+    private fun matchCity(cityWord: String): TransitCity? {
+        val clean = cityWord.trim().removeSuffix("市").removeSuffix("县").removeSuffix("区").removeSuffix("(公交)").removeSuffix("（公交）")
+        if (clean.isBlank()) return null
+        return supportedCities.firstOrNull { c ->
+            val name = c.cityName.trim()
+            val nameClean = name.removeSuffix("市").removeSuffix("县").removeSuffix("区").removeSuffix("(公交)").removeSuffix("（公交）")
+            name == cityWord ||
+                nameClean == clean ||
+                name.startsWith(cityWord) || cityWord.startsWith(name)
         }
     }
 
@@ -167,5 +212,8 @@ class SearchViewModel(
 
         /** [SavedStateHandle] 里输入框文字的 key */
         const val KEY_QUERY = "search_query"
+
+        /** 「城市名 + 分隔符 + 关键词」：分隔符限空格（半/全角）· - _，城市词 2~8 个汉字（可带市/县/区后缀） */
+        private val CITY_PREFIX_REGEX = Regex("""^([\u4e00-\u9fa5]{2,8}?(?:市|县|区)?)[\s\u3000·\-_]+(.+)$""")
     }
 }

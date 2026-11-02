@@ -131,10 +131,12 @@ fun SearchRoute(
                 is SearchEvent.LineClicked -> {
                     rememberQuery()
                     val direction = event.direction
+                    // 跨县/市搜索时用搜索结果对应的城市（searchedCity），否则用当前已选城市
+                    val cityId = (viewModel.uiState.value.searchedCity ?: viewModel.uiState.value.currentCity).cityId
                     whenResumed {
                         navigator.open(
                             ScreenKey.LineDetail(
-                                cityId = viewModel.uiState.value.currentCity.cityId,
+                                cityId = cityId,
                                 lineId = direction.lineId,
                                 targetOrder = 1,
                                 stopId = "",
@@ -147,10 +149,11 @@ fun SearchRoute(
                 is SearchEvent.StopClicked -> {
                     rememberQuery()
                     val stop = event.stop
+                    val cityId = (viewModel.uiState.value.searchedCity ?: viewModel.uiState.value.currentCity).cityId
                     whenResumed {
                         navigator.open(
                             ScreenKey.StopDetail(
-                                cityId = viewModel.uiState.value.currentCity.cityId,
+                                cityId = cityId,
                                 stopId = stop.stopId,
                                 stopName = stop.name,
                                 physicalStId = stop.physicalStId.orEmpty(),

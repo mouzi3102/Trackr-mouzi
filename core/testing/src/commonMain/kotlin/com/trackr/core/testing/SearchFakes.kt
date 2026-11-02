@@ -31,6 +31,12 @@ class RecordingSearchRealtimeRepository(
 
     var pendingSearch: CompletableDeferred<Unit>? = null
 
+    /** 覆盖支持的城市列表（跨县/市搜索前缀匹配用）；null 时用 delegate 的默认列表 */
+    var supportedCitiesOverride: Result<List<TransitCity>>? = null
+
+    override suspend fun getSupportedCities(forceRefresh: Boolean): Result<List<TransitCity>> =
+        supportedCitiesOverride ?: delegate.getSupportedCities(forceRefresh)
+
     override suspend fun search(
         city: TransitCity,
         keyword: String,

@@ -115,8 +115,15 @@ class MygolbsTransitProvider(
             return emptyList()
         }
 
+        // 跨城市搜索（搜索页「城市名 + 关键词」）时，导航只带 stopId；
+        // stopId 自带城市（mg:城市:站名），city.cityName 为空时用它兜底，保证查到目标县/市的站台
+        val stopIdCityName = request.stopId
+            ?.removePrefix("mg:")?.split(":")?.getOrNull(1)
+            ?.takeIf { it.isNotBlank() }
+        val queryCityName = city.cityName.ifBlank { stopIdCityName.orEmpty() }
+
         val stop = runCatching {
-            mygolbsClient.getStopLines(city.cityName, cleanName)
+            mygolbsClient.getStopLines(queryCityName, cleanName)
         }.getOrNull()
 
         return if (stop != null && !stop.isPureSubwayStation) {

@@ -18,6 +18,7 @@ import com.trackr.core.model.AmapTipItem
 import com.trackr.core.model.AmapTransitSchemeResult
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.GroupCategory
+import com.trackr.core.model.ProvinceCityCatalog
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitGroup
 import com.trackr.data.repository.IRouteGroupRepository
@@ -87,6 +88,12 @@ class RoutePlanViewModel(
             if (kw.isEmpty()) return false
             return kw.length >= 2 || kw.any { it in '\u4e00'..'\u9fff' }
         }
+
+        /** 「城市名 + 分隔符 + 关键词」：分隔符限空格（半/全角）· - _，城市词 2~8 个汉字（可带市/县/区后缀） */
+        private val CITY_PREFIX_REGEX = Regex("""^([\u4e00-\u9fa5]{2,8}?(?:市|县|区)?)[\s\u3000·\-_]+(.+)$""")
+
+        /** 从高德行政区文本提取城市名：取第一个「XX市 / XX县 / XX自治州 / XX地区」 */
+        private val ORIGIN_CITY_REGEX = Regex("""([\u4e00-\u9fa5]{2,8}?(?:市|县|自治州|地区))""")
     }
 
     val favoriteGroups: StateFlow<List<FavoriteGroup>> = groupRepository.favoriteGroups
@@ -440,7 +447,17 @@ class RoutePlanViewModel(
                         target.value = emptyList()
                         return@collectLatest
                     }
-                    val tips = routePlan.searchTips(keyword, settings.selectedCity.value, currentGcjLngLat())
+                    // 跨县/市搜索：输入「城市名 + 关键词」（如「灵璧 县政府」「合肥 火车站」）时切目标城市搜 POI
+                    val (targetCityName, realKeyword) = resolveCityPrefix(keyword)
+                    val tips = routePlan.searchTips(
+                        keyword = realKeyword,
+                        city = if (targetCityName != null) {
+                            TransitCity(cityId = "", cityName = targetCityName)
+                        } else {
+                            settings.selectedCity.value
+                        },
+                        location = currentGcjLngLat()
+                    )
                     if (query.value == keyword) {
                         target.value = tips
                     }
@@ -453,6 +470,39 @@ class RoutePlanViewModel(
         val (lat, lng) = userLocationStore.userLocation.value ?: return null
         val (gcjLat, gcjLng) = CoordTransform.wgs84ToGcj02(lat, lng)
         return "$gcjLng,$gcjLat"
+    }
+
+    /**
+     * 解析「城市名 + 分隔符 + 关键词」形式的搜索词（如「灵璧 县政府」「合肥 火车站」）。
+     * 只有城市词能被全国城市目录识别才切城（防止把普通地名误判成城市）；返回 (目标城市名?, 真实关键词)。
+     */
+    private fun resolveCityPrefix(query: String): Pair<String?, String> {
+        val trimmed = query.trim()
+        if (trimmed.length <= 2) return null to trimmed
+        val match = CITY_PREFIX_REGEX.matchEntire(trimmed) ?: return null to trimmed
+        val cityWord = match.groupValues[1]
+        val rest = match.groupValues[2].trim()
+        if (rest.isBlank()) return null to trimmed
+        val clean = cityWord.trim().removeSuffix("市").removeSuffix("县").removeSuffix("区")
+        val isCity = clean.isNotBlank() && (ProvinceCityCatalog.isKnownCity(clean) || ProvinceCityCatalog.isKnownCity(cityWord))
+        if (!isCity) return null to trimmed
+        // 高德 inputTips 的 city 参数：县级市/县保留后缀更稳（如「灵璧县」），地级市「合肥」即可
+        val amapCityName = if (cityWord.endsWith("县")) cityWord else clean
+        return amapCityName to rest
+    }
+
+    /**
+     * 跨城规划时把高德 `city` 修正为起点 POI 所属城市（从行政区文本提取「XX市/县」），
+     * 保证 city/cityd 与起终点一致；同城或提取不到时保持当前已选城市。
+     */
+    private fun resolveOriginCity(origin: AmapTipItem, fallback: TransitCity): TransitCity {
+        val m = ORIGIN_CITY_REGEX.find(origin.district) ?: return fallback
+        val cityName = m.groupValues[1].trim()
+        if (cityName.isBlank()) return fallback
+        val clean = cityName.removeSuffix("市").removeSuffix("县")
+        val fallbackClean = fallback.cityName.removeSuffix("市").removeSuffix("县")
+        if (clean == fallbackClean || clean.isBlank()) return fallback
+        return TransitCity(cityId = "", cityName = cityName)
     }
 
     fun clearPlanError() {
@@ -501,7 +551,9 @@ class RoutePlanViewModel(
             effectiveDest = routePlan.resolveLocation(effectiveDest, city, currentGcjLngLat(), useAmap = hasAmap)
 
             // 3. 缓存 → 高德算路 + 对齐 → 本地兜底（在仓库里）
-            val schemes = routePlan.planTransit(effectiveOrigin, effectiveDest, city, useAmap = hasAmap)
+            //    跨城时高德 city 用起点城市（从起点 POI 行政区推断），cityd 由仓库按终点 adcode 自动算
+            val planCity = resolveOriginCity(effectiveOrigin, city)
+            val schemes = routePlan.planTransit(effectiveOrigin, effectiveDest, planCity, useAmap = hasAmap)
 
             if (schemes.isNotEmpty()) {
                 // 新的规划结果回到第一个标签

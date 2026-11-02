@@ -1,32 +1,18 @@
 package com.trackr.data.remote.amap
 
-import android.content.Context
 import com.trackr.core.domain.platform.AmapSdkKeyApplier
 import com.trackr.core.domain.platform.MapSdkInitializer
 
 /**
- * [AmapSdkKeyApplier] 的 Android 实现，原样转调 [AmapSdkManager.applyApiKey]。
- * 接口第 17 步挪到 `:core:domain`（`:androidApp` 的 `AmapSdkKeySync` 也用它）。
+ * 不含高德 SDK 的精简构建下的空实现：Key 只用于 Web 服务（restapi.amap.com），
+ * 无需注入任何 SDK。接口保留是为了 :androidApp 的 AmapSdkKeySync / TrackrApp 调用点零改动。
  */
-class AndroidAmapSdkKeyApplier(context: Context) : AmapSdkKeyApplier {
-
-    private val appContext: Context = context.applicationContext ?: context
-
-    override fun apply(customKey: String?) {
-        AmapSdkManager.applyApiKey(appContext, customKey)
-    }
+class AndroidAmapSdkKeyApplier : AmapSdkKeyApplier {
+    override fun apply(customKey: String?) = Unit
 }
 
-/** [MapSdkInitializer] 的 Android 实现：记下构建时 Key，再做隐私合规 + 注入 Key（原 `TrackrApp` 里直接调） */
-class AndroidMapSdkInitializer(context: Context) : MapSdkInitializer {
-
-    private val appContext: Context = context.applicationContext ?: context
-
-    override fun configureBuiltInKeys(builtInAndroidKey: String, builtInWebKey: String) {
-        AmapSdkManager.setBuiltInKeys(androidKey = builtInAndroidKey, webKey = builtInWebKey)
-    }
-
-    override fun initialize(userAndroidKey: String?) {
-        AmapSdkManager.initialize(appContext, userAndroidKey)
-    }
+/** [MapSdkInitializer] 的空实现：无 SDK 可初始化，仅保留接口兼容。 */
+class AndroidMapSdkInitializer : MapSdkInitializer {
+    override fun configureBuiltInKeys(builtInAndroidKey: String, builtInWebKey: String) = Unit
+    override fun initialize(userAndroidKey: String?) = Unit
 }
