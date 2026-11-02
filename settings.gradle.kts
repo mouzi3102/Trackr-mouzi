@@ -1,4 +1,6 @@
 pluginManagement {
+    // 约定插件：trackr.android.application / trackr.kmp.library / trackr.kmp.compose / trackr.kmp.feature
+    includeBuild("build-logic")
     repositories {
         google()
         mavenCentral()
@@ -20,5 +22,25 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Trackr"
-include(":app")
+include(":androidApp")
 include(":core:designsystem")
+include(":core:model")
+include(":core:domain")
+include(":core:testing")
+include(":core:navigation")
+include(":core:network")
+include(":core:data")
+include(":core:database")
+include(":core:datastore")
+// 第 17 步：业务通用组件、功能模块、根 Composable（重构计划 §2.2）
+include(":core:ui")
+include(":feature:bus")
+include(":feature:search")
+include(":feature:stop")
+include(":feature:line")
+include(":feature:route")
+include(":feature:favorites")
+include(":feature:me")
+include(":composeApp")
+// 第 27 步：Baseline Profile 生成器 + Macrobenchmark（要连真机跑）
+include(":baselineprofile")

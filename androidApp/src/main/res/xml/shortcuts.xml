@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 乘车码静态快捷方式：发 trackr://transit-code 链接（第 18 步；旧的 OPEN_TRANSIT_CODE action 由 DeepLinkIntents 兼容一个版本） -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="shortcut_alipay_transit_code"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_alipay"
+        android:shortcutShortLabel="@string/shortcut_alipay_transit_code_short"
+        android:shortcutLongLabel="@string/shortcut_alipay_transit_code_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="trackr://transit-code?provider=alipay"
+            android:targetPackage="com.github.u5151561.trackr"
+            android:targetClass="com.trackr.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="shortcut_unionpay_transit_code"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_unionpay"
+        android:shortcutShortLabel="@string/shortcut_unionpay_transit_code_short"
+        android:shortcutLongLabel="@string/shortcut_unionpay_transit_code_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="trackr://transit-code?provider=unionpay"
+            android:targetPackage="com.github.u5151561.trackr"
+            android:targetClass="com.trackr.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>
