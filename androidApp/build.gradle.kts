@@ -27,6 +27,12 @@ fun localOrEnv(name: String): String =
 // AMAP_ANDROID_KEY* 三个注入项已删除，运行时的 Android 槽由 hasAndroidMapSdk = false 兜住（恒不生效）。
 val amapWebServiceKey = localOrEnv("AMAP_WEB_KEY")
 
+// 应用内更新的元数据来源：GitHub 仓库的 `update` 分支（update.json / version.json，由
+// .github/workflows/update-branch.yml 在发 Release 时写）。fork 自建的分发默认指自己 ——
+// 指上游会让人收不到本 fork 的包，还可能拿到用另一把 key 签的安装包（装不上）。
+// 上游发布用 UPDATE_REPO=5151561/Trackr 覆盖（local.properties 或环境变量）。
+val updateRepo = localOrEnv("UPDATE_REPO").ifBlank { "mouzi3102/Trackr-mouzi" }
+
 android {
     namespace = "com.trackr"
 
@@ -36,6 +42,7 @@ android {
         versionName = "0.1.5"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         // 第 9 步存储开关 USE_NEW_STORE 的默认值（true = Room + DataStore）；运行时可用 files/store_switch 覆盖，见 StoreSwitch
         buildConfigField(
             "boolean",

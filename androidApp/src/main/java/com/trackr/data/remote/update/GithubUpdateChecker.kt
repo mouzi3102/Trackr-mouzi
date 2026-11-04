@@ -33,10 +33,13 @@ class GithubUpdateChecker(
 ) : UpdateChecker {
 
     companion object {
+        /** 更新元数据来源仓库（`BuildConfig.UPDATE_REPO`，fork 默认指自己；上游构建可注入覆盖） */
+        val UPDATE_REPO: String = BuildConfig.UPDATE_REPO
+
         val DEFAULT_ENDPOINTS = listOf(
-            "https://raw.githubusercontent.com/5151561/Trackr/update/update.json",
-            "https://fastly.jsdelivr.net/gh/5151561/Trackr@update/update.json",
-            "https://cdn.jsdelivr.net/gh/5151561/Trackr@update/update.json"
+            "https://raw.githubusercontent.com/$UPDATE_REPO/update/update.json",
+            "https://fastly.jsdelivr.net/gh/$UPDATE_REPO@update/update.json",
+            "https://cdn.jsdelivr.net/gh/$UPDATE_REPO@update/update.json"
         )
 
         /** 更新包下载地址允许的域名白名单（精确匹配，不含子域名） */
