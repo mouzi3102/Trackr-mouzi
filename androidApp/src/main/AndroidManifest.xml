@@ -55,11 +55,6 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="true">
 
-        <meta-data
-            android:name="com.amap.api.v2.apikey"
-            android:value="${AMAP_ANDROID_KEY}" />
-        <service android:name="com.amap.api.location.APSService" />
-
         <!-- trackr:// 链接只用显式 Intent 发给 MainActivity（小组件、快捷方式、通知），不注册对应的 intent-filter，
              避免对外暴露（重构计划 §3.6）。外部传进来的链接由 DeepLinkParser 校验 -->
         <activity

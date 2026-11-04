@@ -29,9 +29,6 @@ uiautomator = "2.4.0"
 androidxTestExtJunit = "1.3.0"
 turbine = "1.2.0"
 jacoco = "0.8.12"
-# 高德 3dmap 一体化包：11.2.100 起其 .so 的 PT_LOAD 段才按 16 KB 对齐（0x4000），
-# 10.0.x / 11.1.x 均为 4 KB（0x1000），在 16 KB 页大小的 Android 设备上会加载失败。
-amap3dBundle = "11.3.100_loc11.3.101_sea9.8.1"
 # 以下为重构计划（docs/design/refactor_plan_mad.md）后续步骤预留，第 1 步只登记、暂不应用。
 # Compose Multiplatform 1.12.2 对应 Jetpack Compose 1.12.1（= composeBom 2026.09.00）。
 composeMultiplatform = "1.12.2"
@@ -52,7 +49,6 @@ atomicfu = "0.33.0"
 okio = "3.18.2"
 
 [libraries]
-amap-search = { group = "com.amap.api", name = "3dmap-location-search", version.ref = "amap3dBundle" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }

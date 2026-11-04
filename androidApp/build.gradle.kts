@@ -38,8 +38,8 @@ android {
 
     defaultConfig {
         applicationId = "com.github.u5151561.trackr"
-        versionCode = 8
-        versionName = "0.1.4"
+        versionCode = 10
+        versionName = "0.1.5"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
         // 第 9 步存储开关 USE_NEW_STORE 的默认值（true = Room + DataStore）；运行时可用 files/store_switch 覆盖，见 StoreSwitch
@@ -49,7 +49,7 @@ android {
             providers.gradleProperty("trackr.useNewStore").getOrElse("true").toBooleanStrict().toString()
         )
         buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyRelease\"")
-        manifestPlaceholders["AMAP_ANDROID_KEY"] = amapAndroidKeyRelease
+        // 不含高德 Android SDK：Manifest 里没有 com.amap.api.v2.apikey，不再注入 manifestPlaceholders
 
         vectorDrawables {
             useSupportLibrary = true
@@ -84,13 +84,11 @@ android {
             // 这样同一个高德 Key（同时填了发布版 + 调试版 SHA-1）对两种构建都有效。
             enableUnitTestCoverage = true
             buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyDebug\"")
-            manifestPlaceholders["AMAP_ANDROID_KEY"] = amapAndroidKeyDebug
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyRelease\"")
-            manifestPlaceholders["AMAP_ANDROID_KEY"] = amapAndroidKeyRelease
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -102,13 +100,13 @@ android {
         }
     }
 
-    // 两个 ABI 各出一个包，不把 56 MB 原生库塞进同一个 APK：arm64 约 51 MB、armv7 约 40 MB。
-    // 产物在 build/outputs/apk/release/androidApp-<abi>-release.apk。
+    // 不含高德 SDK 后没有任何原生库：只出 64 位包，v7a / universal 只会是重复的 dex，纯浪费体积。
+    // 产物在 build/outputs/apk/release/androidApp-arm64-v8a-release.apk。
     splits {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a")
+            include("arm64-v8a")
             isUniversalApk = false
         }
     }

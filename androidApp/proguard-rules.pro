@@ -30,22 +30,6 @@
 # Manifest 里声明的 Activity / Service / Receiver / Provider（含合并进来的库组件）由 AGP 生成的
 # aapt_rules.txt 保留类和无参构造，不用再按父类整类保留（第 29 步）。
 
-# --- 高德地图 SDK（3dmap / location / search）---
-# SDK 内部大量使用 JNI 回调与反射查找类名，混淆后会直接导致地图白屏或崩溃
--keep class com.amap.api.** { *; }
--keep class com.autonavi.** { *; }
--keep class com.loc.** { *; }
-# location 11.x 把实现类挪到 com.amap.location.**，libapssdk.so 的 JNI_OnLoad 按原类名
-# FindClass（如 com.amap.location.support.log.ALLog）并回调这些类；被改名或裁掉会 SIGABRT
--keep class com.amap.location.** { *; }
--dontwarn com.amap.api.**
--dontwarn com.autonavi.**
--dontwarn com.loc.**
--dontwarn com.amap.location.**
-# 11.x 起内置的 location fusion 会反射引用可选的 GNSS 模块（com.amap.ams.*），
-# 该模块未打进一体化包，属于「可选依赖缺失」，忽略即可
--dontwarn com.amap.ams.**
-
 
 # --- Glance 小组件（第 26 步）---
 # RunCallbackAction 用无参构造反射创建 ActionCallback

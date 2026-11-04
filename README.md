@@ -164,14 +164,13 @@
 ./gradlew :androidApp:assembleRelease
 ```
 
-按 ABI 出两个包，不合并成一个大包（高德 SDK 的原生库只支持 arm）：
+只出 64 位一个包（`splits.abi` 只留 `arm64-v8a`）：本仓库不含任何原生库，再出 `armeabi-v7a` / universal 只会是重复的 dex，纯浪费体积。
 
 | 产物 | 大小 |
 | :--- | :--- |
-| `androidApp/build/outputs/apk/release/androidApp-arm64-v8a-release.apk` | 约 47 MB |
-| `androidApp/build/outputs/apk/release/androidApp-armeabi-v7a-release.apk` | 约 36 MB |
+| `androidApp/build/outputs/apk/release/androidApp-arm64-v8a-release.apk` | 约 4.6 MB（R8 混淆 + 资源压缩后，`classes.dex` 约 5.6 MB） |
 
-传到 GitHub Release 时按 `trackr-<版本>-arm64-v8a.apk` / `trackr-<版本>-armeabi-v7a.apk` 命名，应用会按设备架构下载对应包。
+签名走 `local.properties` 或环境变量里的 `RELEASE_STORE_FILE` / `RELEASE_STORE_PASSWORD` / `RELEASE_KEY_ALIAS` / `RELEASE_KEY_PASSWORD`（四个都给全才会签，否则出 `-unsigned` 包）。传到 GitHub Release 时按 `trackr-<版本>-arm64-v8a.apk` 命名，应用按 `Build.SUPPORTED_ABIS` 挑包；只有 32 位的老机器需要另行出 `armeabi-v7a` 包。
 
 ### 重新生成 README 截图
 
@@ -189,21 +188,15 @@
 
 ### 用到了哪些能力
 
+**本仓库不集成高德 Android SDK**（一体化包 30 MB+ 原生库，会把 4.6 MB 的包顶到 40 MB 以上），只走 Web 服务：
+
 | 能力 | 实现 | 使用哪个 Key |
 | :--- | :--- | :--- |
-| 平面地图渲染：方案折线、起终点标记、定位蓝点、夜间样式 | `TextureMapView` + `AMap` | Android 平台 Key |
-| 地点输入提示（起点 / 终点联想） | `Inputtips`（search SDK） | Android 平台 Key |
-| 公交算路（换乘方案、步行段、票价） | `RouteSearch`（search SDK） | Android 平台 Key |
-| 算路兜底 | `restapi.amap.com` 的公交路径规划接口 | Web 服务 Key |
-| 定位 | 系统 `LocationManager`（不用高德定位取点） | 不需要 |
+| 公交算路（换乘方案、步行段、票价）、起终点输入提示 | `restapi.amap.com` 的公交路径规划 / `inputtips` 接口（`:core:network` 的 `AmapTransitApiClient`） | Web 服务 Key |
+| 平面地图渲染 | 不做。路线页显示纯色兜底背景（`isRouteMapSupported = false`，`NoMapBackground`），方案折线只参与算路不对绘 | —— |
+| 定位 | 系统 `LocationManager`（本来就没用高德定位取点） | 不需要 |
 
-依赖只有一个一体化包，地图、定位、搜索都在里面：
-
-```kotlin
-amap-search = { group = "com.amap.api", name = "3dmap-location-search", version = "11.3.100_loc11.3.101_sea9.8.1" }
-```
-
-它只在 `:feature:route` 的 `androidMain`（以及 `:androidApp` 的构建配置）出现，`commonMain` 和其他模块不引用高德类。选 `11.2.100` 以上是因为从这个版本起 `.so` 按 16 KB 页对齐；低于它的版本在 16 KB 页大小的新设备上会加载失败。
+因此 Android 平台 Key 在这份构建里没有作用：`AmapKeyRules.status()` 拿到 `hasAndroidMapSdk = false`，`effectiveAndroidKey` 恒为空，「我的 → 高德 Key」页也不再显示 Android 槽。`commonMain` 和其他模块从不引用 `com.amap.*`。
 
 ### 两类 Key 严格分开
 
