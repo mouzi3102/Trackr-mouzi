@@ -1,5 +1,6 @@
 package com.trackr.data.repository
 
+import com.trackr.core.data.repository.CitySearchHistoryRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.RealtimeRepository
 import com.trackr.core.data.repository.SearchHistoryRepository
@@ -12,6 +13,7 @@ import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.core.model.TransitSearchResult
 import com.trackr.core.testing.FAKE_DEFAULT_CITY
+import com.trackr.core.testing.FakeCitySearchHistoryRepository
 import com.trackr.core.testing.FakeFavoritesRepository
 import com.trackr.core.testing.FakeRealtimeRepository
 import com.trackr.core.testing.FakeSearchHistoryRepository
@@ -30,11 +32,13 @@ class FakeTransitRepository private constructor(
     val settings: FakeSettingsRepository,
     val favoritesFake: FakeFavoritesRepository,
     val historyFake: FakeSearchHistoryRepository,
-    val realtime: FakeRealtimeRepository
+    val realtime: FakeRealtimeRepository,
+    val cityHistoryFake: FakeCitySearchHistoryRepository = FakeCitySearchHistoryRepository()
 ) : ITransitRepository,
     SettingsRepository by settings,
     FavoritesRepository by favoritesFake,
     SearchHistoryRepository by historyFake,
+    CitySearchHistoryRepository by cityHistoryFake,
     RealtimeRepository by realtime {
 
     constructor(

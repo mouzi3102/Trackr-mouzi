@@ -21,6 +21,7 @@ import com.trackr.core.model.TrackingTarget
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.UserFix
 import com.trackr.core.testing.FakeAnnouncer
+import com.trackr.core.testing.FakeCitySearchHistoryRepository
 import com.trackr.core.testing.FakeClock
 import com.trackr.core.testing.FakeFavoritesRepository
 import com.trackr.core.testing.FakeLocationRepository
@@ -53,6 +54,7 @@ import kotlin.time.Duration.Companion.milliseconds
 private class HomeFakes(city: TransitCity, val favoritesRepo: FakeFavoritesRepository = FakeFavoritesRepository()) {
     val settings = FakeSettingsRepository(city)
     val realtime = FakeRealtimeRepository(currentCity = { settings.selectedCity.value })
+    val cityHistory = FakeCitySearchHistoryRepository()
     val userLocationStore = FakeUserLocationStore()
     val location = FakeLocationRepository()
 
@@ -110,6 +112,7 @@ class BusHomeViewModelTest {
                 settings = f.settings,
                 favorites = f.favoritesRepo,
                 realtime = f.realtime,
+                cityHistory = f.cityHistory,
                 userLocationStore = f.userLocationStore,
                 locationRepository = f.location,
                 trackingController = trackingController,
@@ -123,6 +126,7 @@ class BusHomeViewModelTest {
                 settings = f.settings,
                 favorites = f.favoritesRepo,
                 realtime = f.realtime,
+                cityHistory = f.cityHistory,
                 userLocationStore = f.userLocationStore,
                 locationRepository = f.location,
                 trackingController = trackingController,
@@ -159,6 +163,60 @@ class BusHomeViewModelTest {
 
         assertEquals("北京", viewModel.uiState.value.currentCity.cityName)
         assertEquals("001", fakeRepository.selectedCity.value.cityId)
+    }
+
+    @Test
+    fun testCitySearchHistory_isRecordedOnSelectAndReflectsDeletion() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        val yulin = TransitCity(cityId = "440", cityName = "玉林", mygolbsCityCode = "450900", province = "广西")
+
+        // 1. 带词选中城市 → 词进记录
+        viewModel.updateCitySearchQuery("玉林")
+        viewModel.onEvent(BusHomeEvent.CitySelected(yulin))
+        testScheduler.runCurrent()
+        assertEquals(listOf("玉林"), viewModel.uiState.value.citySearchHistory)
+
+        // 2. 同词不重复记（大小写去重）
+        viewModel.updateCitySearchQuery("YULIN")
+        viewModel.onEvent(BusHomeEvent.CitySearchSubmitted)
+        viewModel.updateCitySearchQuery("yulin")
+        viewModel.onEvent(BusHomeEvent.CitySelected(yulin))
+        testScheduler.runCurrent()
+        assertEquals(listOf("yulin", "玉林"), viewModel.uiState.value.citySearchHistory)
+
+        // 3. 新词在最前
+        viewModel.onEvent(BusHomeEvent.CitySearchChanged("桂林"))
+        viewModel.onEvent(BusHomeEvent.CitySelected(TransitCity(cityId = "206", cityName = "桂林", province = "广西")))
+        testScheduler.runCurrent()
+        assertEquals(listOf("桂林", "yulin", "玉林"), viewModel.uiState.value.citySearchHistory)
+
+        // 4. 点记录回填搜索框
+        viewModel.onEvent(BusHomeEvent.CityHistoryClicked("yulin"))
+        testScheduler.runCurrent()
+        assertEquals("yulin", viewModel.uiState.value.citySearchQuery)
+
+        // 5. 单删
+        viewModel.onEvent(BusHomeEvent.RemoveCityHistory("yulin"))
+        testScheduler.runCurrent()
+        assertEquals(listOf("桂林", "玉林"), viewModel.uiState.value.citySearchHistory)
+
+        // 6. 全清（顶栏同款「清空」）
+        viewModel.onEvent(BusHomeEvent.ClearCityHistory)
+        testScheduler.runCurrent()
+        assertEquals(emptyList(), viewModel.uiState.value.citySearchHistory)
+    }
+
+    @Test
+    fun testCitySearchHistory_blankQueryNotRecorded() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+
+        viewModel.onEvent(BusHomeEvent.CitySearchSubmitted)
+        viewModel.onEvent(BusHomeEvent.CitySelected(beijing))
+        testScheduler.runCurrent()
+
+        assertEquals(emptyList(), viewModel.uiState.value.citySearchHistory)
     }
 
     @Test
@@ -408,6 +466,42 @@ class BusHomeViewModelTest {
 
         assertEquals("0571", fakeRepository.selectedCity.value.cityId)
         assertEquals("杭州", viewModel.uiState.value.currentCity.cityName)
+    }
+
+    @Test
+    fun testRelocate_requeriesNearbyWithFreshFixAndLocatedCity_aligningEngine() = runTest(main.dispatcher) {
+        // v0.0.8 回归：人在玉林（只有掌上公交支持），已选上海（车来了）。
+        // 空提示里的「重新定位」要直接用新坐标 + 定位城市重查附近并把引擎切过去，不用再手动选城市
+        val yulin = TransitCity(cityId = "", cityName = "玉林", pinyin = "yulin", mygolbsCityCode = "450900", province = "广西")
+        val yulinStops = NearbyStop(stopId = "yl_1", name = "玉林火车站", distanceMeters = 300, lines = emptyList())
+        val shanghaiStops = NearbyStop(stopId = "sh_1", name = "人民广场", distanceMeters = 50, lines = emptyList())
+        grantFreshGpsLocation(22.63, 110.16)
+        fakeRepository.supportedCitiesResult = Result.success(listOf(shanghai, beijing, yulin))
+        fakeRepository.resolveCityResult = Result.success(yulin)
+        fakeRepository.nearbyStopsResultProvider = { city, lat, lng ->
+            // 只有「城市对且坐标在玉林」才给结果：旧城市 + 新坐标（空）与玉林中心点兜底都不会误命中
+            if (city.cityName == "玉林" && lat < 25.0) Result.success(listOf(yulinStops)) else Result.success(listOf(shanghaiStops))
+        }
+
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertEquals("上海", viewModel.uiState.value.currentCity.cityName)
+
+        viewModel.onEvent(BusHomeEvent.RetryLocation)
+        testScheduler.runCurrent()
+
+        val lastCall = fakeRepository.nearbyStopsCalls.last()
+        assertEquals("玉林", lastCall.first.cityName)
+        assertEquals(22.63, lastCall.second, absoluteTolerance = 0.0001)
+        assertEquals(110.16, lastCall.third, absoluteTolerance = 0.0001)
+        assertEquals(listOf("玉林火车站"), viewModel.uiState.value.nearbyStops.map { it.name })
+        // 引擎自动联动到支持玉林的数据源；城市同步选中、写入设置（和城市弹窗「重新定位」一致）
+        assertEquals(EngineMode.MYGOLBS, fakeRepository.settings.engineMode.value)
+        assertEquals(EngineMode.MYGOLBS, viewModel.uiState.value.engineMode)
+        assertEquals("玉林", fakeRepository.selectedCity.value.cityName)
+        // 定位成功：不落「定位不可用」，转圈状态也全部落回
+        assertNull(viewModel.uiState.value.locationError)
+        assertFalse(viewModel.uiState.value.isBusy)
     }
 
     @Test

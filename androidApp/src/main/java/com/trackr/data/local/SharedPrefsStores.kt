@@ -11,6 +11,7 @@ import com.trackr.core.data.local.FavoritesWrite
 import com.trackr.core.data.local.ReminderStore
 import com.trackr.core.data.local.TransitLocalSnapshot
 import com.trackr.core.data.local.TransitLocalStore
+import com.trackr.core.data.local.WebDavConfigValues
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItemRecord
 import com.trackr.core.model.FavoriteStationLine
@@ -63,7 +64,8 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         alertThresholdStops = if (prefs.contains(KEY_ALERT_THRESHOLD_STOPS)) prefs.getInt(KEY_ALERT_THRESHOLD_STOPS, 2) else null,
         uiMode = prefs.getString(KEY_UI_MODE, null),
         fontScalePromptDismissed = if (prefs.contains(KEY_FONT_SCALE_PROMPT_DISMISSED)) prefs.getBoolean(KEY_FONT_SCALE_PROMPT_DISMISSED, false) else null,
-        searchHistory = decodeOrEmpty(prefs.getString(KEY_SEARCH_HISTORY, null))
+        searchHistory = decodeOrEmpty(prefs.getString(KEY_SEARCH_HISTORY, null)),
+        citySearchHistory = decodeOrEmpty(prefs.getString(KEY_CITY_SEARCH_HISTORY, null))
     )
 
     override suspend fun saveSelectedCityJson(json: String) {
@@ -110,10 +112,42 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         prefs.edit().remove(KEY_SEARCH_HISTORY).apply()
     }
 
+    override suspend fun saveCitySearchHistory(list: List<String>) {
+        prefs.edit().putString(KEY_CITY_SEARCH_HISTORY, legacyJson.encodeToString(list)).apply()
+    }
+
+    override suspend fun clearCitySearchHistory() {
+        prefs.edit().remove(KEY_CITY_SEARCH_HISTORY).apply()
+    }
+
     override suspend fun favoritesGroupMigrationVersion(): Int = prefs.getInt(KEY_FAVORITES_GROUP_MIGRATION_VERSION, 0)
 
     override suspend fun saveFavoritesGroupMigrationVersion(version: Int) {
         prefs.edit().putInt(KEY_FAVORITES_GROUP_MIGRATION_VERSION, version).apply()
+    }
+
+    override suspend fun loadWebDavConfig(): WebDavConfigValues = WebDavConfigValues(
+        baseUrl = if (prefs.contains(KEY_WEBDAV_BASE_URL)) prefs.getString(KEY_WEBDAV_BASE_URL, null) else null,
+        username = if (prefs.contains(KEY_WEBDAV_USERNAME)) prefs.getString(KEY_WEBDAV_USERNAME, null) else null,
+        remoteDir = if (prefs.contains(KEY_WEBDAV_REMOTE_DIR)) prefs.getString(KEY_WEBDAV_REMOTE_DIR, null) else null,
+        filePrefix = if (prefs.contains(KEY_WEBDAV_FILE_PREFIX)) prefs.getString(KEY_WEBDAV_FILE_PREFIX, null) else null,
+        lastBackupAtMillis = if (prefs.contains(KEY_WEBDAV_LAST_BACKUP_AT)) prefs.getLong(KEY_WEBDAV_LAST_BACKUP_AT, 0L) else null
+    )
+
+    override suspend fun saveWebDavConfig(values: WebDavConfigValues) {
+        val editor = prefs.edit()
+        fun put(key: String, value: String?) = if (value == null) editor.remove(key) else editor.putString(key, value)
+        put(KEY_WEBDAV_BASE_URL, values.baseUrl)
+        put(KEY_WEBDAV_USERNAME, values.username)
+        put(KEY_WEBDAV_REMOTE_DIR, values.remoteDir)
+        put(KEY_WEBDAV_FILE_PREFIX, values.filePrefix)
+        val lastBackupAt = values.lastBackupAtMillis
+        if (lastBackupAt == null) {
+            editor.remove(KEY_WEBDAV_LAST_BACKUP_AT)
+        } else {
+            editor.putLong(KEY_WEBDAV_LAST_BACKUP_AT, lastBackupAt)
+        }
+        editor.apply()
     }
 
     companion object {
@@ -128,9 +162,16 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         private const val KEY_ALERT_THRESHOLD_STOPS = "alert_threshold_stops"
         private const val KEY_UI_MODE = "ui_mode"
         private const val KEY_FONT_SCALE_PROMPT_DISMISSED = "font_scale_prompt_dismissed"
+        // WebDAV 备份连接配置（和新存储 SettingsKeys 同名；没有密码键——密码不落盘）
+        private const val KEY_WEBDAV_BASE_URL = "webdav_base_url"
+        private const val KEY_WEBDAV_USERNAME = "webdav_username"
+        private const val KEY_WEBDAV_REMOTE_DIR = "webdav_remote_dir"
+        private const val KEY_WEBDAV_FILE_PREFIX = "webdav_file_prefix"
+        private const val KEY_WEBDAV_LAST_BACKUP_AT = "webdav_last_backup_at"
         /** 收藏的车（[SharedPrefsFavoritesStore] 读写） */
         const val KEY_FAVORITES = "favorites_json"
         private const val KEY_SEARCH_HISTORY = "search_history_json"
+        private const val KEY_CITY_SEARCH_HISTORY = "city_search_history_json"
         const val KEY_FAVORITES_GROUP_MIGRATION_VERSION = "favorites_group_migration_version"
     }
 }

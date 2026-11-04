@@ -33,7 +33,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -42,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -81,6 +81,9 @@ import com.trackr.feature.me.resources.me_elder_mode
 import com.trackr.feature.me.resources.me_elder_mode_desc
 import com.trackr.feature.me.resources.me_group_display
 import com.trackr.feature.me.resources.me_group_map
+import com.trackr.feature.me.resources.me_group_backup
+import com.trackr.feature.me.resources.me_webdav_entry_desc
+import com.trackr.feature.me.resources.me_webdav_title
 import com.trackr.feature.me.resources.me_group_notify
 import com.trackr.feature.me.resources.me_group_travel
 import com.trackr.feature.me.resources.me_live_notify
@@ -126,7 +129,7 @@ fun MeScreen(
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { MeMessageHost(state.userMessages) { onEvent(MeEvent.MessageShown(it)) } },
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = { Text(text = stringResource(MeRes.string.me_title), fontWeight = FontWeight.Bold) },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -241,6 +244,17 @@ fun MeScreen(
                         onClick = { onEvent(MeEvent.OpenAmapKey) },
                         modifier = Modifier.testTag("row_amap_key"),
                         subtitleModifier = Modifier.testTag("text_amap_key_status")
+                    )
+                }
+            }
+
+            item(key = "group_backup", contentType = "settings_group") {
+                SettingsGroup(title = stringResource(MeRes.string.me_group_backup)) {
+                    SettingRow(
+                        title = stringResource(MeRes.string.me_webdav_title),
+                        subtitle = stringResource(MeRes.string.me_webdav_entry_desc),
+                        onClick = { onEvent(MeEvent.OpenWebDavBackup) },
+                        modifier = Modifier.testTag("row_webdav_backup")
                     )
                 }
             }

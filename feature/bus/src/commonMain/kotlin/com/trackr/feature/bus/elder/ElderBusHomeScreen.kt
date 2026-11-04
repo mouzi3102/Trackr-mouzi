@@ -71,6 +71,8 @@ import com.trackr.feature.bus.resources.bus_home_settings
 import com.trackr.feature.bus.resources.bus_home_switch_city
 import com.trackr.feature.bus.resources.bus_nearby_empty
 import com.trackr.feature.bus.resources.bus_nearby_loading
+import com.trackr.feature.bus.resources.bus_nearby_no_fix
+import com.trackr.feature.bus.resources.bus_nearby_open_settings
 import com.trackr.ui.components.arrival.ArrivalUi
 import com.trackr.ui.components.arrival.arrivalToneColor
 import com.trackr.ui.components.elder.ElderArrival
@@ -205,7 +207,13 @@ fun ElderBusHomeScreen(
             onSelectProvince = { onEvent(BusHomeEvent.ProvinceSelected(it)) },
             onSelectCity = { onEvent(BusHomeEvent.CitySelected(it)) },
             onRelocate = { onEvent(BusHomeEvent.RelocateCity) },
-            onDismiss = { onEvent(BusHomeEvent.CloseCityPicker) }
+            onDismiss = { onEvent(BusHomeEvent.CloseCityPicker) },
+            cityHistory = state.citySearchHistory,
+            onHistoryClick = { onEvent(BusHomeEvent.CityHistoryClicked(it)) },
+            onHistoryRemove = { onEvent(BusHomeEvent.RemoveCityHistory(it)) },
+            onHistoryClear = { onEvent(BusHomeEvent.ClearCityHistory) },
+            onQuerySubmit = { onEvent(BusHomeEvent.CitySearchSubmitted) },
+            elderMode = true
         )
     }
 
@@ -462,9 +470,11 @@ private fun LazyListScope.elderNearby(state: BusHomeUiState, onEvent: (BusHomeEv
             }
         }
         stops.isEmpty() -> item(key = "nearby_empty", contentType = "empty_hint") {
+            // 没拿到定位（含权限被拒）时不要说「附近没站」：给指引 +「重新定位」「去设置」两个入口
+            val noFix = state.locationError != null
             Column(verticalArrangement = Arrangement.spacedBy(TrackrTheme.dimens.spaceS)) {
                 Text(
-                    text = stringResource(BusRes.string.bus_nearby_empty),
+                    text = stringResource(if (noFix) BusRes.string.bus_nearby_no_fix else BusRes.string.bus_nearby_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -473,6 +483,13 @@ private fun LazyListScope.elderNearby(state: BusHomeUiState, onEvent: (BusHomeEv
                     onClick = { onEvent(BusHomeEvent.RetryLocation) },
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (noFix) {
+                    ElderButton(
+                        text = stringResource(BusRes.string.bus_nearby_open_settings),
+                        onClick = { onEvent(BusHomeEvent.OpenSettings) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
         else -> items(items = stops, key = { it.key }, contentType = { "nearby_stop" }) { stop ->

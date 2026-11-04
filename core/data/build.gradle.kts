@@ -3,6 +3,8 @@
 // 不依赖平台存储的实现（实时查询、定位）；第 9 步加存储层（local/：Room + DataStore 的 Store、旧数据迁移）。重构计划 §2.4、§2.5。
 plugins {
     alias(libs.plugins.trackr.kmp.library)
+    // 备份 DTO（core/data/backup/BackupModels.kt）需要 @Serializable 生成 serializer
+    alias(libs.plugins.kotlin.plugin.serialization)
 }
 
 kotlin {

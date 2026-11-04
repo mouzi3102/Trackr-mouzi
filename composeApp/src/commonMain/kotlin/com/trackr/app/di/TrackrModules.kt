@@ -1,5 +1,11 @@
 package com.trackr.app.di
 
+import com.trackr.core.data.backup.DefaultBackupRepository
+import com.trackr.core.data.backup.KtorWebDavTransport
+import com.trackr.core.data.backup.StoreWebDavConfigRepository
+import com.trackr.core.data.backup.BackupRepository
+import com.trackr.core.data.backup.WebDavConfigRepository
+import com.trackr.core.data.backup.WebDavTransport
 import com.trackr.core.data.local.LocalMigrationFlags
 import com.trackr.core.data.repository.HomeCoordinates
 import com.trackr.core.data.repository.RoutePlanRepository
@@ -16,6 +22,7 @@ import com.trackr.feature.route.routeModule
 import com.trackr.feature.search.searchModule
 import com.trackr.feature.stop.stopModule
 import com.trackr.app.AppShellViewModel
+import kotlin.time.Clock
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
@@ -40,6 +47,26 @@ val appShellModule: Module = module {
     viewModel { AppShellViewModel(settings = get()) }
 }
 
+/**
+ * WebDAV 备份（第 39 步「我的」）：连接配置（不含密码）存设置存储，
+ * 传输用 :core:network 的 Ktor 客户端（Android 由 `platformBridgeModule` 给 `HttpClient`），
+ * 恢复写回全部走各仓库现有接口。放在这里是因为要把 :core:network 的传输接到 :core:data 的仓库上。
+ */
+val webDavBackupModule: Module = module {
+    single<WebDavConfigRepository> { StoreWebDavConfigRepository(get()) }
+    single<WebDavTransport> { KtorWebDavTransport(get()) }
+    single<BackupRepository> {
+        DefaultBackupRepository(
+            configRepository = get(),
+            transport = get(),
+            settings = get(),
+            searchHistoryRepository = get(),
+            favoritesRepository = get(),
+            nowMillis = { Clock.System.now().toEpochMilliseconds() }
+        )
+    }
+}
+
 /** 各平台额外的 feature 模块（Android：高德 SDK 通道等） */
 internal expect val platformFeatureModules: List<Module>
 
@@ -55,4 +82,5 @@ val trackrModules: List<Module>
         routeModule,
         favoritesModule,
         meModule,
+        webDavBackupModule,
     ) + platformFeatureModules

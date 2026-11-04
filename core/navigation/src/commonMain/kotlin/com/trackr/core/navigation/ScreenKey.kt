@@ -60,6 +60,10 @@ sealed interface ScreenKey : NavKey {
     @Serializable
     data object AmapKey : ScreenKey
 
+    /** WebDAV 备份（「我的」页签子页，第 39 步）：备份 / 恢复设置、搜索记录、收藏 */
+    @Serializable
+    data object WebDavBackup : ScreenKey
+
     /** 路线详情（§3.1 公交页签子页，第 22 步做页面；第 17 步只占位） */
     @Serializable
     data class RouteDetail(val groupId: String) : ScreenKey

@@ -1,5 +1,6 @@
 package com.trackr.data.repository
 
+import com.trackr.core.data.repository.CitySearchHistoryRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.RealtimeRepository
 import com.trackr.core.data.repository.SearchHistoryRepository
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
  * [RealtimeRepository]、[SearchHistoryRepository]（定位另有 `LocationRepository`），这里只是把它们合在一起，
  * 让现有 ViewModel 先不用改；第 17 步 ViewModel 搬进各 feature 时改成只拿要用的接口，这个接口随之删掉。
  */
-interface ITransitRepository : SettingsRepository, FavoritesRepository, RealtimeRepository, SearchHistoryRepository {
+interface ITransitRepository : SettingsRepository, FavoritesRepository, RealtimeRepository, SearchHistoryRepository, CitySearchHistoryRepository {
 
     /**
      * 首页定位写入的最近坐标（WGS-84），站点详情 / 搜索 / 规划页「我的位置」没传坐标时用。

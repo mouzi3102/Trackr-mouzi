@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.trackr.core.model.DataSourceType
 import com.trackr.app.di.appShellModule
 import com.trackr.app.di.routeDataModule
+import com.trackr.app.di.webDavBackupModule
 import com.trackr.core.navigation.ScreenKey
 import com.trackr.core.network.provider.ITransitProvider
 import com.trackr.ui.screens.linedetail.LineDetailViewModel
@@ -119,13 +120,17 @@ class KoinGraphVerifyTest {
     @Test
     fun meModule_verify() = verifyModule(meModule)
 
+    // 第 39 步：WebDAV 备份（连接配置 + 传输 + 备份仓库）
+    @Test
+    fun webDavBackupModule_verify() = verifyModule(webDavBackupModule)
+
     @Test
     fun appModules_containsEveryModuleUnderTest() {
         // 新加模块时要在上面补一条 verify 用例，这里提醒一下
         assertEquals(
             listOf(
                 appModule, platformBridgeModule, routeDataModule, appShellModule, busModule, searchModule, stopModule,
-                lineModule, routeModule, favoritesModule, meModule, routeAndroidModule
+                lineModule, routeModule, favoritesModule, meModule, webDavBackupModule, routeAndroidModule
             ),
             appModules
         )

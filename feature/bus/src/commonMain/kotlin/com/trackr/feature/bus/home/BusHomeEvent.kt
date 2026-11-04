@@ -17,7 +17,7 @@ sealed interface BusHomeEvent {
     /** 收藏右上角「编辑」 */
     data object EditFavorites : BusHomeEvent
 
-    /** 顶栏右上角「设置」（只有长辈版首页有：没有底部页签，从这里进「我的」） */
+    /** 「我的」（长辈版顶栏「设置」；定位不可用时附近空提示里的「去设置」也走它） */
     data object OpenSettings : BusHomeEvent
 
     // ---- 交给 ViewModel ----
@@ -40,4 +40,14 @@ sealed interface BusHomeEvent {
     data class ProvinceSelected(val province: String) : BusHomeEvent
     data class CitySelected(val city: TransitCity) : BusHomeEvent
     data object RelocateCity : BusHomeEvent
+
+    // 城市弹窗的搜索记录（删除语义和顶栏搜索历史同款）
+    /** 点键盘「搜索」：把当前词记进城市搜索记录 */
+    data object CitySearchSubmitted : BusHomeEvent
+    /** 点了一条搜索记录：填回搜索框 */
+    data class CityHistoryClicked(val query: String) : BusHomeEvent
+    /** 删掉一条搜索记录（记录上的 ×） */
+    data class RemoveCityHistory(val query: String) : BusHomeEvent
+    /** 清空全部搜索记录（要确认） */
+    data object ClearCityHistory : BusHomeEvent
 }

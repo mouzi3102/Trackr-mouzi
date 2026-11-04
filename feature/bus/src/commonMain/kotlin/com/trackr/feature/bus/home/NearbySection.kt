@@ -30,6 +30,8 @@ import com.trackr.core.designsystem.theme.item
 import com.trackr.feature.bus.resources.Res as BusRes
 import com.trackr.feature.bus.resources.bus_nearby_empty
 import com.trackr.feature.bus.resources.bus_nearby_loading
+import com.trackr.feature.bus.resources.bus_nearby_no_fix
+import com.trackr.feature.bus.resources.bus_nearby_open_settings
 import com.trackr.feature.bus.resources.bus_nearby_stop_detail
 import com.trackr.feature.bus.resources.bus_nearby_title
 import com.trackr.ui.components.arrival.ArrivalTrailing
@@ -53,8 +55,15 @@ internal fun LazyListScope.nearbySection(state: BusHomeUiState, onEvent: (BusHom
             }
         }
         state.nearbyCards.isEmpty() -> item(key = "nearby_empty", contentType = "empty_hint") {
-            EmptyHint(text = stringResource(BusRes.string.bus_nearby_empty)) {
-                TextButton(onClick = { onEvent(BusHomeEvent.RetryLocation) }) { Text(stringResource(Res.string.action_relocate)) }
+            // 没拿到定位（含权限被拒）时不要说「附近没站」：给指引 +「重新定位」「去设置」两个入口
+            val noFix = state.locationError != null
+            EmptyHint(text = stringResource(if (noFix) BusRes.string.bus_nearby_no_fix else BusRes.string.bus_nearby_empty)) {
+                Row {
+                    TextButton(onClick = { onEvent(BusHomeEvent.RetryLocation) }) { Text(stringResource(Res.string.action_relocate)) }
+                    if (noFix) {
+                        TextButton(onClick = { onEvent(BusHomeEvent.OpenSettings) }) { Text(stringResource(BusRes.string.bus_nearby_open_settings)) }
+                    }
+                }
             }
         }
         else -> items(

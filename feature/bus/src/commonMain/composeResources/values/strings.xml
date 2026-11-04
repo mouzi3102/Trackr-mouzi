@@ -12,6 +12,9 @@
     <string name="bus_city_located_name">定位: %1$s</string>
     <string name="bus_city_selected_name">已选: %1$s</string>
     <string name="bus_city_province_count">%1$s · 共 %2$s 城</string>
+    <string name="bus_city_recent_search">最近搜索</string>
+    <string name="bus_city_clear_history_title">清空城市搜索记录？</string>
+    <string name="bus_city_history_delete">删除搜索记录 %1$s</string>
     <string name="bus_home_switch_city">换城市</string>
     <string name="bus_home_settings">设置</string>
     <string name="bus_home_search_hint">搜线路、车站</string>
@@ -21,6 +24,8 @@
     <string name="bus_favorites_all">全部</string>
     <string name="bus_nearby_title">附近</string>
     <string name="bus_nearby_empty">附近 1 公里内没找到公交站</string>
+    <string name="bus_nearby_no_fix">还没拿到你的定位，查不了附近站：开启定位权限后点「重新定位」</string>
+    <string name="bus_nearby_open_settings">去设置</string>
     <string name="bus_nearby_stop_detail">站点详情</string>
     <string name="bus_nearby_loading">正在查车…</string>
     <string name="bus_tracking_more_lines">还有 %1$s 条</string>

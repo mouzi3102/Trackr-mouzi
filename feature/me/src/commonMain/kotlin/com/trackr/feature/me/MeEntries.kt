@@ -24,12 +24,15 @@ import com.trackr.ui.screens.me.MeViewModel
 import com.trackr.ui.screens.me.ReminderEditEvent
 import com.trackr.ui.screens.me.ReminderEditScreen
 import com.trackr.ui.screens.me.ReminderEditViewModel
+import com.trackr.ui.screens.me.WebDavBackupEvent
+import com.trackr.ui.screens.me.WebDavBackupScreen
+import com.trackr.ui.screens.me.WebDavBackupViewModel
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 /**
  * 「我的」页签的导航 entry（第 25 步：页面都在 commonMain，Android 和 iOS 同一份）：
- * 我的（根页）、定时提醒编辑、高德 Key、关于。
+ * 我的（根页）、定时提醒编辑、高德 Key、WebDAV 备份、关于。
  */
 fun EntryProviderScope<NavKey>.meEntries(navigator: TrackrNavigator) {
     entry<ScreenKey.More> {
@@ -49,6 +52,10 @@ fun EntryProviderScope<NavKey>.meEntries(navigator: TrackrNavigator) {
 
     entry<ScreenKey.About> {
         AboutRoute(viewModel = koinViewModel(), navigator = navigator)
+    }
+
+    entry<ScreenKey.WebDavBackup> {
+        WebDavBackupRoute(viewModel = koinViewModel(), navigator = navigator)
     }
 }
 
@@ -75,6 +82,7 @@ private fun MeRoute(viewModel: MeViewModel, navigator: TrackrNavigator) {
                 is MeEvent.OpenReminder -> whenResumed { navigator.open(ScreenKey.ReminderEdit(event.id)) }
                 MeEvent.OpenAmapKey -> whenResumed { navigator.open(ScreenKey.AmapKey) }
                 MeEvent.OpenAbout -> whenResumed { navigator.open(ScreenKey.About) }
+                MeEvent.OpenWebDavBackup -> whenResumed { navigator.open(ScreenKey.WebDavBackup) }
                 else -> viewModel.onEvent(event)
             }
         }
@@ -151,6 +159,19 @@ private fun AboutRoute(viewModel: AboutViewModel, navigator: TrackrNavigator) {
         state = state,
         onEvent = { event ->
             if (event == AboutEvent.Back) back() else viewModel.onEvent(event)
+        }
+    )
+}
+
+@Composable
+private fun WebDavBackupRoute(viewModel: WebDavBackupViewModel, navigator: TrackrNavigator) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val back = dropUnlessResumed { navigator.popChildPage() }
+
+    WebDavBackupScreen(
+        state = state,
+        onEvent = { event ->
+            if (event == WebDavBackupEvent.Back) back() else viewModel.onEvent(event)
         }
     )
 }

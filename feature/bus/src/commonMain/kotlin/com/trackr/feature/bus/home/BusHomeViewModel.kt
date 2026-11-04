@@ -2,6 +2,7 @@ package com.trackr.feature.bus.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.trackr.core.data.repository.CitySearchHistoryRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.HomeCoordinates
 import com.trackr.core.data.repository.LocationRepository
@@ -44,6 +45,8 @@ class BusHomeViewModel(
     private val settings: SettingsRepository,
     private val favorites: FavoritesRepository,
     private val realtime: RealtimeRepository,
+    /** 城市弹窗的搜索记录（与顶栏搜索历史同款语义，可单条删、可全清） */
+    private val cityHistory: CitySearchHistoryRepository,
     /** 首页定位写入的最近坐标（站点详情、搜索、规划页「我的位置」读它） */
     private val userLocationStore: UserLocationStore,
     /** 设备定位（首页刷新时取一次当前位置） */
@@ -154,6 +157,13 @@ class BusHomeViewModel(
             }
         }
 
+        // 观察城市弹窗的搜索记录（和顶栏历史同款：StateFlow 即时反映删除/清空）
+        viewModelScope.launch {
+            cityHistory.citySearchHistory.collect { list ->
+                edit { it.copy(citySearchHistory = list) }
+            }
+        }
+
         // 收藏的车（小组件 / 快捷方式的同步在应用级收集器里做，这里只显示）
         viewModelScope.launch {
             favorites.favorites.collect { favs ->
@@ -214,7 +224,9 @@ class BusHomeViewModel(
     fun onEvent(event: BusHomeEvent) {
         when (event) {
             BusHomeEvent.Refresh -> refresh()
-            BusHomeEvent.RetryLocation -> refreshLocationAndNearby()
+            // 「重新定位」是用户明确要重新定位的入口（附近空提示、定位提示、长辈版同款按钮）：
+            // 跟定位城市走，和城市弹窗里的「重新定位」一致；自动场景（启动、下拉刷新）不变城市（Issue #6）
+            BusHomeEvent.RetryLocation -> refreshLocationAndNearby(switchCity = true)
             BusHomeEvent.StopTracking -> stopTracking()
             is BusHomeEvent.SelectGroup -> selectGroup(event.groupId)
             BusHomeEvent.TransitCodeClicked -> onTransitCodeClicked()
@@ -228,6 +240,10 @@ class BusHomeViewModel(
             is BusHomeEvent.ProvinceSelected -> selectProvince(event.province)
             is BusHomeEvent.CitySelected -> selectCity(event.city)
             BusHomeEvent.RelocateCity -> refreshLocationAndNearby(switchCity = true)
+            BusHomeEvent.CitySearchSubmitted -> submitCitySearch()
+            is BusHomeEvent.CityHistoryClicked -> updateCitySearchQuery(event.query)
+            is BusHomeEvent.RemoveCityHistory -> removeCityHistory(event.query)
+            BusHomeEvent.ClearCityHistory -> clearCityHistory()
             BusHomeEvent.OpenSearch,
             is BusHomeEvent.OpenLine,
             is BusHomeEvent.OpenStop,
@@ -263,7 +279,9 @@ class BusHomeViewModel(
     }
 
     /**
-     * 刷新定位并加载附近站点
+     * 刷新定位并加载附近站点。
+     *
+     * 「重新定位」入口（空提示 / 定位提示 / 城市弹窗）传 [switchCity] = true；启动初始化传 false。
      */
     fun refreshLocationAndNearby(switchCity: Boolean = false) {
         refresh(switchCity)
@@ -304,9 +322,11 @@ class BusHomeViewModel(
     /**
      * 整体刷新（重新定位、刷新附近公交与收藏线路实时到站）
      *
-     * @param switchCity 为 true 时把城市切到定位城市（仅城市弹窗里的「重新定位」使用）。
-     * 启动、授权、下拉刷新等自动场景传 false：只更新坐标，不覆盖用户已选的城市（Issue #6）。
+     * @param switchCity 为 true 时把城市切到定位城市（城市弹窗和空提示里的「重新定位」）。
+     * 启动、下拉刷新等自动场景传 false：只更新坐标，不覆盖用户已选的城市（Issue #6）。
      * 从未存过城市（首次安装）时，即使传 false 也会切到定位城市。
+     * 两种都要带上定位城市：查附近的 cityId / 城市名按定位城市给，城市只有单一数据源支持时先对齐引擎
+     * （v0.0.8 修复：重新定位后附近空、必须手动选城市才出结果的根因）。
      */
     fun refresh(switchCity: Boolean = false) {
         viewModelScope.launch {
@@ -350,9 +370,11 @@ class BusHomeViewModel(
                                 locationError = null
                             )
                         }
+                        alignEngineToCity(resolvedCity)
                         Triple(lat, lng, resolvedCity)
                     } else {
                         // 保留用户已选城市，只记录定位城市供城市弹窗展示「定位: X」
+                        val savedCity = settings.selectedCity.value
                         edit {
                             it.copy(
                                 locatedCity = resolvedCity ?: it.locatedCity,
@@ -362,7 +384,8 @@ class BusHomeViewModel(
                                 locationError = null
                             )
                         }
-                        Triple(lat, lng, settings.selectedCity.value)
+                        alignEngineToCity(savedCity)
+                        Triple(lat, lng, savedCity)
                     }
                 } else {
                     val currentCity = _uiState.value.currentCity
@@ -405,11 +428,32 @@ class BusHomeViewModel(
                 }
             }
 
-            favJob.join()
-            nearbyJob.join()
-            edit { it.copy(isRefreshing = false, isLocating = false, isLoadingNearby = false) }
-            lastRealtimeRefreshAtMs = elapsedRealtimeMillis()
+            try {
+                favJob.join()
+                nearbyJob.join()
+            } finally {
+                // 子任务失败 / 取消也要把刷新状态落回，不然附近区会永远显示「正在加载」
+                edit { it.copy(isRefreshing = false, isLocating = false, isLoadingNearby = false) }
+                lastRealtimeRefreshAtMs = elapsedRealtimeMillis()
+            }
         }
+    }
+
+    /**
+     * 城市只被单一数据源支持时把引擎切过去：车来了按 cityId 查附近、掌上公交按城市名查，
+     * 城市没有车来了 id 时只有掌上公交查得到；两头都支持则保持用户的选择。
+     * 选城市（[selectCity]）和重新定位（[refresh]）查附近前都先对齐（原来只有 [selectCity] 对齐，
+     * 重新定位不切城市也不对齐引擎，是 v0.0.8「重新定位后附近为空」的根因）。
+     */
+    private fun alignEngineToCity(city: TransitCity) {
+        val target = when {
+            city.cityId.isBlank() && !city.mygolbsCityCode.isNullOrBlank() -> EngineMode.MYGOLBS
+            city.cityId.isNotBlank() && city.mygolbsCityCode.isNullOrBlank() -> EngineMode.CHELAILE
+            // 逆地理兜底构造的空 id 城市（离线、城市表还没拉到）：车来了按 id 查必空，只有按名字查的掌上公交有机会
+            city.cityId.isBlank() -> EngineMode.MYGOLBS
+            else -> null
+        } ?: return
+        if (_uiState.value.engineMode != target) setEngineMode(target)
     }
 
     /**
@@ -466,9 +510,28 @@ class BusHomeViewModel(
         edit { it.copy(selectedProvince = province) }
     }
 
+    /** 键盘「搜索」：把当前词记进城市搜索记录（不离开弹窗） */
+    private fun submitCitySearch() {
+        val query = _uiState.value.citySearchQuery
+        if (query.isBlank()) return
+        viewModelScope.launch { cityHistory.addCitySearchHistory(query) }
+    }
+
+    private fun removeCityHistory(query: String) {
+        viewModelScope.launch { cityHistory.removeCitySearchHistory(query) }
+    }
+
+    private fun clearCityHistory() {
+        viewModelScope.launch { cityHistory.clearCitySearchHistory() }
+    }
+
     fun selectCity(city: TransitCity) {
         viewModelScope.launch {
             val state = _uiState.value
+            // 带着搜索词选中城市：这个词进城市搜索记录（规则同顶栏「搜索后记词」）
+            if (state.citySearchQuery.isNotBlank()) {
+                cityHistory.addCitySearchHistory(state.citySearchQuery)
+            }
             val isLocated = city.matchesCity(state.locatedCity)
             val coords = if (isLocated) {
                 // 优先用真实 GPS 坐标：当前坐标可能已回退为其他城市的中心点
@@ -477,12 +540,8 @@ class BusHomeViewModel(
                 ProvinceCityCatalog.getCityCenterCoordinates(city.cityName)
             }
 
-            // 若所选城市仅某单一数据源支持，自动联动切换至支持的引擎
-            if (city.cityId.isBlank() && !city.mygolbsCityCode.isNullOrBlank() && state.engineMode != EngineMode.MYGOLBS) {
-                setEngineMode(EngineMode.MYGOLBS)
-            } else if (city.cityId.isNotBlank() && city.mygolbsCityCode.isNullOrBlank() && state.engineMode != EngineMode.CHELAILE) {
-                setEngineMode(EngineMode.CHELAILE)
-            }
+            // 若所选城市仅某单一数据源支持，自动联动切换至支持的引擎（和重新定位共用同一规则）
+            alignEngineToCity(city)
 
             edit {
                 it.copy(

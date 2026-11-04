@@ -7,6 +7,7 @@ import com.trackr.ui.screens.me.AmapKeyViewModel
 import com.trackr.ui.screens.me.MeNotices
 import com.trackr.ui.screens.me.MeViewModel
 import com.trackr.ui.screens.me.ReminderEditViewModel
+import com.trackr.ui.screens.me.WebDavBackupViewModel
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -38,6 +39,7 @@ val meModule = module {
         )
     }
     viewModel { AmapKeyViewModel(amapKeys = get(), signingInfo = get(), defaults = get(), notices = get()) }
+    viewModel { WebDavBackupViewModel(backupRepository = get(), configRepository = get()) }
     viewModel {
         val version = getOrNull<AppVersionInfo>() ?: AppVersionInfo(1, "0.0.1")
         AboutViewModel(updateChecker = getOrNull(), versionProvider = { version.code to version.name })

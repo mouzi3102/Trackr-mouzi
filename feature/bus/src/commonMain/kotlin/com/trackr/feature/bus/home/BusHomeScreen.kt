@@ -175,7 +175,12 @@ fun BusHomeScreen(
             onSelectProvince = { onEvent(BusHomeEvent.ProvinceSelected(it)) },
             onSelectCity = { onEvent(BusHomeEvent.CitySelected(it)) },
             onRelocate = { onEvent(BusHomeEvent.RelocateCity) },
-            onDismiss = { onEvent(BusHomeEvent.CloseCityPicker) }
+            onDismiss = { onEvent(BusHomeEvent.CloseCityPicker) },
+            cityHistory = state.citySearchHistory,
+            onHistoryClick = { onEvent(BusHomeEvent.CityHistoryClicked(it)) },
+            onHistoryRemove = { onEvent(BusHomeEvent.RemoveCityHistory(it)) },
+            onHistoryClear = { onEvent(BusHomeEvent.ClearCityHistory) },
+            onQuerySubmit = { onEvent(BusHomeEvent.CitySearchSubmitted) }
         )
     }
 

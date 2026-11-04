@@ -1,8 +1,10 @@
 package com.trackr.core.testing
 
+import com.trackr.core.data.repository.CitySearchHistoryRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.LocationRepository
 import com.trackr.core.data.repository.RealtimeRepository
+import com.trackr.core.data.repository.SearchHistoryOps
 import com.trackr.core.data.repository.SearchHistoryRepository
 import com.trackr.core.data.repository.SettingsRepository
 import com.trackr.core.domain.tracking.LocationCadence
@@ -252,11 +254,7 @@ class FakeSearchHistoryRepository(
     override suspend fun addSearchHistory(query: String) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return
-        _searchHistory.update { list ->
-            val updated = list.filterNot { it.equals(trimmed, ignoreCase = true) }.toMutableList()
-            updated.add(0, trimmed)
-            if (updated.size > 20) updated.take(20) else updated
-        }
+        _searchHistory.update { SearchHistoryOps.add(it, trimmed) }
     }
 
     override suspend fun removeSearchHistory(query: String) {
@@ -266,6 +264,28 @@ class FakeSearchHistoryRepository(
 
     override suspend fun clearSearchHistory() {
         _searchHistory.value = emptyList()
+    }
+}
+
+/** 城市选择器搜索历史 Fake：规则走和真实现同一个 [SearchHistoryOps] */
+class FakeCitySearchHistoryRepository(
+    initialCitySearchHistory: List<String> = emptyList()
+) : CitySearchHistoryRepository {
+
+    private val _citySearchHistory = MutableStateFlow(initialCitySearchHistory)
+    override val citySearchHistory: StateFlow<List<String>> = _citySearchHistory.asStateFlow()
+
+    override suspend fun addCitySearchHistory(query: String) {
+        if (query.isBlank()) return
+        _citySearchHistory.update { SearchHistoryOps.add(it, query) }
+    }
+
+    override suspend fun removeCitySearchHistory(query: String) {
+        _citySearchHistory.update { SearchHistoryOps.remove(it, query) }
+    }
+
+    override suspend fun clearCitySearchHistory() {
+        _citySearchHistory.value = emptyList()
     }
 }
 

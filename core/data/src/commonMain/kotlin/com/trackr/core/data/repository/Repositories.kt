@@ -130,6 +130,41 @@ interface SearchHistoryRepository {
 }
 
 /**
+ * 城市选择器的搜索历史（「切换城市」弹窗里搜过的词）。
+ * 语义和 [SearchHistoryRepository] 完全同款：最近的在前、最多 20 条、不分大小写去重，支持单删和全清。
+ */
+interface CitySearchHistoryRepository {
+    val citySearchHistory: StateFlow<List<String>>
+
+    suspend fun addCitySearchHistory(query: String)
+    suspend fun removeCitySearchHistory(query: String)
+    suspend fun clearCitySearchHistory()
+}
+
+/**
+ * 搜索历史的纯归约规则（旧顶栏、城市弹窗共用），实现「最近的在前、去重、封顶」的唯一口径：
+ * - [add]：trim、空串不管；忽略大小写去掉同词后插到最前，超过 [MAX_HISTORY] 截断。
+ * - [remove]：忽略大小写删掉该词，没删到也返回原表。
+ */
+object SearchHistoryOps {
+
+    const val MAX_HISTORY = 20
+
+    fun add(list: List<String>, query: String): List<String> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return list
+        val updated = list.filterNot { it.equals(trimmed, ignoreCase = true) }.toMutableList()
+        updated.add(0, trimmed)
+        return if (updated.size > MAX_HISTORY) updated.take(MAX_HISTORY) else updated
+    }
+
+    fun remove(list: List<String>, query: String): List<String> {
+        val trimmed = query.trim()
+        return list.filterNot { it.equals(trimmed, ignoreCase = true) }
+    }
+}
+
+/**
  * 实时查询：城市列表、定位城市、附近、站点、线路、时刻表、搜索；按当前数据源选 Provider。
  * 线路详情按 key 合并并发请求、缓存 6 秒；`getStopDetail` / `getLineDetail` 被取消时照常抛出取消，不包成失败结果。
  */

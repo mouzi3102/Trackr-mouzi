@@ -47,6 +47,7 @@ val busModule = module {
             settings = get(),
             favorites = get(),
             realtime = get(),
+            cityHistory = get(),
             userLocationStore = get(),
             locationRepository = get(),
             trackingController = get(),

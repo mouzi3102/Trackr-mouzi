@@ -9,10 +9,22 @@ import com.trackr.core.datastore.AmapKeyKeys
 import com.trackr.core.datastore.SettingsKeys
 import com.trackr.core.model.ScheduledReminder
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 
 /*
  * 新存储（USE_NEW_STORE 打开时用）：列表类进 Room，设置和高德 Key 进 DataStore（重构计划 §2.4）。
  */
+
+private val stringListJson = Json { ignoreUnknownKeys = true }
+
+/** 字符串数组 ↔ JSON 文本（DataStore 单 key 存历史列表用；解析失败当没存过） */
+private fun encodeStringList(list: List<String>): String =
+    stringListJson.encodeToString(ListSerializer(String.serializer()), list)
+
+private fun decodeStringList(text: String): List<String> =
+    runCatching { stringListJson.decodeFromString(ListSerializer(String.serializer()), text) }.getOrDefault(emptyList())
 
 /** 设置在 `trackr_settings`，搜索历史在 Room（收藏的车第 14 步挪到 [RoomFavoritesStore]） */
 class RoomDataStoreTransitStore(
@@ -32,7 +44,8 @@ class RoomDataStoreTransitStore(
             alertThresholdStops = prefs[SettingsKeys.ALERT_THRESHOLD_STOPS],
             uiMode = prefs[SettingsKeys.UI_MODE],
             fontScalePromptDismissed = prefs[SettingsKeys.FONT_SCALE_PROMPT_DISMISSED],
-            searchHistory = db.searchHistory().getAll().map { it.query }
+            searchHistory = db.searchHistory().getAll().map { it.query },
+            citySearchHistory = prefs[SettingsKeys.CITY_SEARCH_HISTORY_JSON]?.let { decodeStringList(it) } ?: emptyList()
         )
     }
 
@@ -81,11 +94,48 @@ class RoomDataStoreTransitStore(
         db.searchHistory().deleteAll()
     }
 
+    // 城市选择器历史是字符串数组：DataStore 本体只放标量，按 SELECTED_CITY_JSON 的先例整表编成 JSON 存一个 string key；
+    // 顶栏搜索历史在 Room 有专属表，这里不新加表（加表要升库版本 + Migration，见 :core:database 说明）
+    override suspend fun saveCitySearchHistory(list: List<String>) {
+        settings.edit { prefs ->
+            if (list.isEmpty()) prefs.remove(SettingsKeys.CITY_SEARCH_HISTORY_JSON)
+            else prefs[SettingsKeys.CITY_SEARCH_HISTORY_JSON] = encodeStringList(list)
+        }
+    }
+
+    override suspend fun clearCitySearchHistory() {
+        settings.edit { it.remove(SettingsKeys.CITY_SEARCH_HISTORY_JSON) }
+    }
+
     override suspend fun favoritesGroupMigrationVersion(): Int =
         settings.data.first()[SettingsKeys.FAVORITES_GROUP_MIGRATION_VERSION] ?: 0
 
     override suspend fun saveFavoritesGroupMigrationVersion(version: Int) {
         settings.edit { it[SettingsKeys.FAVORITES_GROUP_MIGRATION_VERSION] = version }
+    }
+
+    override suspend fun loadWebDavConfig(): WebDavConfigValues {
+        val prefs = settings.data.first()
+        return WebDavConfigValues(
+            baseUrl = prefs[SettingsKeys.WEBDAV_BASE_URL],
+            username = prefs[SettingsKeys.WEBDAV_USERNAME],
+            remoteDir = prefs[SettingsKeys.WEBDAV_REMOTE_DIR],
+            filePrefix = prefs[SettingsKeys.WEBDAV_FILE_PREFIX],
+            lastBackupAtMillis = prefs[SettingsKeys.WEBDAV_LAST_BACKUP_AT]
+        )
+    }
+
+    override suspend fun saveWebDavConfig(values: WebDavConfigValues) {
+        settings.edit { prefs ->
+            fun <T : Any> put(key: androidx.datastore.preferences.core.Preferences.Key<T>, value: T?) {
+                if (value == null) prefs.remove(key) else prefs[key] = value
+            }
+            put(SettingsKeys.WEBDAV_BASE_URL, values.baseUrl)
+            put(SettingsKeys.WEBDAV_USERNAME, values.username)
+            put(SettingsKeys.WEBDAV_REMOTE_DIR, values.remoteDir)
+            put(SettingsKeys.WEBDAV_FILE_PREFIX, values.filePrefix)
+            put(SettingsKeys.WEBDAV_LAST_BACKUP_AT, values.lastBackupAtMillis)
+        }
     }
 }
 

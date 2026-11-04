@@ -1,12 +1,12 @@
 package com.trackr.feature.bus.home
 
+import com.trackr.core.model.CityCatalogSearch
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.NearbyStop
-import com.trackr.core.model.ProvinceCityCatalog
 import com.trackr.core.model.TrackingSession
 import com.trackr.core.model.TrackingSessionState
 import com.trackr.core.model.TransitCity
@@ -24,6 +24,8 @@ data class BusHomeUiState(
     val locatedCity: TransitCity? = null,
     val cities: List<TransitCity> = emptyList(),
     val citySearchQuery: String = "",
+    /** 「切换城市」弹窗里搜过的词（和顶栏搜索历史同款语义：最新在前、可单删可全清） */
+    val citySearchHistory: List<String> = emptyList(),
     val isCityPickerOpen: Boolean = false,
     val currentLat: Double = 31.2304,
     val currentLng: Double = 121.4737,
@@ -62,13 +64,7 @@ data class BusHomeUiState(
                 EngineMode.MYGOLBS -> cities.filter { !it.mygolbsCityCode.isNullOrBlank() }
                 EngineMode.CHELAILE -> cities.filter { it.cityId.isNotBlank() }
             }
-            if (citySearchQuery.isBlank()) return baseList
-            val q = citySearchQuery.trim().lowercase()
-            return baseList.filter {
-                it.cityName.lowercase().contains(q) ||
-                    it.pinyin.lowercase().contains(q) ||
-                    (it.province.ifBlank { ProvinceCityCatalog.inferProvince(it.cityName) }).lowercase().contains(q)
-            }
+            return CityCatalogSearch.filter(baseList, citySearchQuery)
         }
 
     /** 定位 / 下拉刷新 / 首次加载附近站中，任何一个在进行就显示刷新圈 */

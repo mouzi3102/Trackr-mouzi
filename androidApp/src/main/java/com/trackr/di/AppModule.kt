@@ -11,6 +11,7 @@ import com.trackr.core.data.repository.DefaultLocationRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.LocationRepository
 import com.trackr.core.data.repository.RealtimeRepository
+import com.trackr.core.data.repository.CitySearchHistoryRepository
 import com.trackr.core.data.repository.SearchHistoryRepository
 import com.trackr.core.data.repository.SettingsRepository
 import com.trackr.core.data.repository.DefaultTrackingRepository
@@ -108,6 +109,7 @@ val appModule: Module = module {
     single<FavoritesRepository> { get<DefaultFavoritesRepository>() }
     single<RealtimeRepository> { get<ITransitRepository>() }
     single<SearchHistoryRepository> { get<ITransitRepository>() }
+    single<CitySearchHistoryRepository> { get<ITransitRepository>() }
     single<IScheduledReminderRepository> {
         ScheduledReminderRepository(store = get(), alarms = get())
     }

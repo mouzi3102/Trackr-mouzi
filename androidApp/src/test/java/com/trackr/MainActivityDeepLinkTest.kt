@@ -12,6 +12,7 @@ import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.core.navigation.ScreenKey
 import com.trackr.core.navigation.deeplink.DeepLinkUris
+import com.trackr.core.testing.FakeCitySearchHistoryRepository
 import com.trackr.core.testing.FakeFavoritesRepository
 import com.trackr.core.testing.FakeLocationRepository
 import com.trackr.core.testing.FakeRealtimeRepository
@@ -91,6 +92,7 @@ class MainActivityDeepLinkTest {
                         // 有一条收藏，首页才显示「编辑」（拿它认首页根页）
                         favorites = FakeFavoritesRepository(initialFavorites = listOf(SAMPLE_FAVORITE)),
                         realtime = realtime,
+                        cityHistory = FakeCitySearchHistoryRepository(),
                         userLocationStore = FakeUserLocationStore(),
                         locationRepository = FakeLocationRepository(),
                         trackingController = get(),

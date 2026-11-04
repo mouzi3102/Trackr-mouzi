@@ -33,6 +33,7 @@ import com.trackr.core.navigation.deeplink.DeepLink
 import com.trackr.core.navigation.deeplink.DeepLinkParser
 import com.trackr.core.navigation.deeplink.DeepLinkUris
 import com.trackr.core.model.FavoriteStationLine
+import com.trackr.core.testing.FakeCitySearchHistoryRepository
 import com.trackr.core.testing.FakeFavoritesRepository
 import com.trackr.core.testing.FakeLocationRepository
 import com.trackr.core.testing.FakeRealtimeRepository
@@ -100,6 +101,7 @@ class TrackrAppNavigationTest {
                         // 有一条收藏，首页才显示「编辑」
                         favorites = FakeFavoritesRepository(initialFavorites = listOf(SAMPLE_FAVORITE)),
                         realtime = realtime,
+                        cityHistory = FakeCitySearchHistoryRepository(),
                         userLocationStore = FakeUserLocationStore(),
                         locationRepository = FakeLocationRepository(),
                         trackingController = get(),

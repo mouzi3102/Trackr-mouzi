@@ -58,6 +58,7 @@ sealed interface MeEvent {
     data class OpenReminder(val id: String) : MeEvent
     data object OpenAmapKey : MeEvent
     data object OpenAbout : MeEvent
+    data object OpenWebDavBackup : MeEvent
 }
 
 /** 到站前提醒能选的站数（和通知上「切换」按钮的 1 → 2 → 3 一致） */
@@ -131,7 +132,8 @@ class MeViewModel(
             is MeEvent.SetElderMode -> settings.setUiMode(if (event.enabled) UiMode.Elder else UiMode.Standard)
             is MeEvent.MessageShown -> notices.consume(event.id)
             // 导航事件由 Route 处理
-            is MeEvent.OpenReminder, MeEvent.OpenAmapKey, MeEvent.OpenAbout -> Unit
+            is MeEvent.OpenReminder, MeEvent.OpenAmapKey, MeEvent.OpenAbout,
+            MeEvent.OpenWebDavBackup -> Unit
         }
     }
 

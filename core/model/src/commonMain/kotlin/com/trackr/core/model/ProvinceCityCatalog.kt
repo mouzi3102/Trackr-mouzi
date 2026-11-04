@@ -174,6 +174,16 @@ object ProvinceCityCatalog {
         map
     }
 
+    /** 省 / 直辖市在目录里收录的城市名单（未登记返回空） */
+    fun citiesOf(province: String): List<String> = PROVINCE_TO_CITIES[province].orEmpty()
+
+    /** 目录收录的全部城市名，按 [PROVINCE_ORDER] 拼接 */
+    val ALL_CITY_NAMES: List<String> by lazy { PROVINCE_ORDER.flatMap { citiesOf(it) } }
+
+    /** 省份展示位次；未登记的排最后（=[PROVINCE_ORDER] 长度） */
+    fun provinceOrderIndex(province: String): Int =
+        PROVINCE_ORDER.indexOf(province).let { if (it >= 0) it else PROVINCE_ORDER.size }
+
     /**
      * 70+ 中国核心城市 WGS-84 地理中心经纬度坐标（lat, lng）
      */

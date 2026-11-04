@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +54,25 @@ object SettingsKeys {
 
     /** 系统字体放大时的「试试长辈版」提示点过了（第 30 步新加）；没有 = 还没点过 */
     val FONT_SCALE_PROMPT_DISMISSED = booleanPreferencesKey("font_scale_prompt_dismissed")
+
+    /**
+     * 城市选择器搜索历史。和 [SELECTED_CITY_JSON] 同款：DataStore 里永远只放标量，
+     * 这里是字符串数组的 JSON（列表本体规则不变；顶栏搜索历史进 Room，那份表没给它留列，见 §2.4 的注）。
+     */
+    val CITY_SEARCH_HISTORY_JSON = stringPreferencesKey("city_search_history_json")
+
+    /**
+     * WebDAV 备份的连接配置（第 39 步）：只存服务器地址、用户名、远端目录、文件名前缀这些非敏感标量。
+     * **密码不持久化**（只在「WebDAV 备份」页内存里活着，本次会话有效）。
+     */
+    val WEBDAV_BASE_URL = stringPreferencesKey("webdav_base_url")
+    val WEBDAV_USERNAME = stringPreferencesKey("webdav_username")
+    val WEBDAV_REMOTE_DIR = stringPreferencesKey("webdav_remote_dir")
+    val WEBDAV_FILE_PREFIX = stringPreferencesKey("webdav_file_prefix")
+
+    /** 上次成功备份的时间（epoch millis）；没有 = 从没备份过 */
+    val WEBDAV_LAST_BACKUP_AT = longPreferencesKey("webdav_last_backup_at")
+
     val FAVORITES_GROUP_MIGRATION_VERSION = intPreferencesKey("favorites_group_migration_version")
 
     /** 旧 SharedPreferences 的设置导入到第几代（见 LegacySettingsMigration）；没有 = 还没导入 */

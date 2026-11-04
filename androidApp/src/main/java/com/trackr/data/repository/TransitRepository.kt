@@ -10,6 +10,7 @@ import com.trackr.core.data.repository.DefaultFavoritesRepository
 import com.trackr.core.data.repository.DefaultRealtimeRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.PlatformGeocoder
+import com.trackr.core.data.repository.SearchHistoryOps
 import com.trackr.core.domain.platform.MonotonicClock
 import com.trackr.core.domain.platform.ProcessMonotonicClock
 import com.trackr.core.model.AlertThreshold
@@ -302,6 +303,34 @@ class TransitRepository(
     override suspend fun clearSearchHistory() = libraryMutex.withLock {
         _searchHistory.value = emptyList()
         writer.enqueue { store.clearSearchHistory() }.join()
+    }
+
+    // ---- 城市选择器搜索历史（切换城市弹窗）：规则同顶栏搜索历史，用 [SearchHistoryOps]，存储各存一份 ----
+
+    private val _citySearchHistory = MutableStateFlow(initial.citySearchHistory)
+    override val citySearchHistory: StateFlow<List<String>> = _citySearchHistory.asStateFlow()
+
+    override suspend fun addCitySearchHistory(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        libraryMutex.withLock {
+            val updated = SearchHistoryOps.add(_citySearchHistory.value, trimmed)
+            _citySearchHistory.value = updated
+            writer.enqueue { store.saveCitySearchHistory(updated) }.join()
+        }
+    }
+
+    override suspend fun removeCitySearchHistory(query: String) = libraryMutex.withLock {
+        val updated = SearchHistoryOps.remove(_citySearchHistory.value, query)
+        if (updated != _citySearchHistory.value) {
+            _citySearchHistory.value = updated
+            writer.enqueue { store.saveCitySearchHistory(updated) }.join()
+        }
+    }
+
+    override suspend fun clearCitySearchHistory() = libraryMutex.withLock {
+        _citySearchHistory.value = emptyList()
+        writer.enqueue { store.clearCitySearchHistory() }.join()
     }
 
     override suspend fun setPreferredTransitCodeProvider(provider: TransitCodeProvider) {

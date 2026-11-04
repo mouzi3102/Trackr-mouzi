@@ -40,7 +40,9 @@ data class TransitLocalSnapshot(
     val uiMode: String? = null,
     val fontScalePromptDismissed: Boolean? = null,
     val favorites: List<FavoriteStationLine> = emptyList(),
-    val searchHistory: List<String> = emptyList()
+    val searchHistory: List<String> = emptyList(),
+    /** 城市选择器里搜过的词（和 [searchHistory] 同款语义，另一份记录） */
+    val citySearchHistory: List<String> = emptyList()
 )
 
 /** TransitRepository 的存储：设置（旧 `trackr_prefs` / 新 `trackr_settings`）、搜索历史 */
@@ -57,11 +59,30 @@ interface TransitLocalStore {
     suspend fun saveFontScalePromptDismissed(dismissed: Boolean)
     suspend fun saveSearchHistory(list: List<String>)
     suspend fun clearSearchHistory()
+    /** 城市选择器搜索历史（城市弹窗用，规则同顶栏搜索历史） */
+    suspend fun saveCitySearchHistory(list: List<String>)
+    suspend fun clearCitySearchHistory()
 
     /** 收藏页一次性数据修复的版本号（旧 `favorites_group_migration_version`）；没记过为 0 */
     suspend fun favoritesGroupMigrationVersion(): Int
     suspend fun saveFavoritesGroupMigrationVersion(version: Int)
+
+    /**
+     * WebDAV 备份连接配置（第 39 步）：只有非敏感标量（地址、用户名、目录、文件名前缀、上次备份时间）。
+     * **没有密码**——密码只在页面内存里活本次会话，一律不落盘。null = 没存过（读默认值）或写时删除。
+     */
+    suspend fun loadWebDavConfig(): WebDavConfigValues
+    suspend fun saveWebDavConfig(values: WebDavConfigValues)
 }
+
+/** [TransitLocalStore] 里 WebDAV 备份的原始值；写在 `trackr_settings`（新）/旧 `trackr_prefs`（旧），字段 null = 没存过 */
+data class WebDavConfigValues(
+    val baseUrl: String? = null,
+    val username: String? = null,
+    val remoteDir: String? = null,
+    val filePrefix: String? = null,
+    val lastBackupAtMillis: Long? = null
+)
 
 /**
  * 收藏合一一次读出的快照（第 14 步）。

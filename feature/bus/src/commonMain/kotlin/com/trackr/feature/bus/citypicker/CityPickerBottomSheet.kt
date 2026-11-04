@@ -1,10 +1,12 @@
 package com.trackr.feature.bus.citypicker
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +22,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -28,35 +33,48 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.trackr.core.designsystem.component.DataSourceBadge
 import com.trackr.core.designsystem.component.DataSourceBadgeStyle
 import com.trackr.core.designsystem.component.TrackrBottomSheet
 import com.trackr.core.designsystem.resources.Res
+import com.trackr.core.designsystem.resources.action_cancel
+import com.trackr.core.designsystem.resources.action_clear
 import com.trackr.core.designsystem.resources.action_close
 import com.trackr.core.designsystem.resources.action_relocate
 import com.trackr.core.designsystem.resources.ic_close
 import com.trackr.core.designsystem.resources.ic_my_location
 import com.trackr.core.designsystem.resources.ic_search
+import com.trackr.core.model.CityCatalogSearch
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.ProvinceCityCatalog
 import com.trackr.core.model.TransitCity
 import com.trackr.feature.bus.resources.Res as BusRes
 import com.trackr.feature.bus.resources.bus_city_clear
+import com.trackr.feature.bus.resources.bus_city_clear_history_title
 import com.trackr.feature.bus.resources.bus_city_current
+import com.trackr.feature.bus.resources.bus_city_history_delete
 import com.trackr.feature.bus.resources.bus_city_located
 import com.trackr.feature.bus.resources.bus_city_located_name
 import com.trackr.feature.bus.resources.bus_city_match_count
 import com.trackr.feature.bus.resources.bus_city_province_count
+import com.trackr.feature.bus.resources.bus_city_recent_search
 import com.trackr.feature.bus.resources.bus_city_search
 import com.trackr.feature.bus.resources.bus_city_search_hint
 import com.trackr.feature.bus.resources.bus_city_selected_name
@@ -190,7 +208,10 @@ fun CityPickerItemRow(
 }
 
 /**
- * 全国 480+ 城市两级（省份 → 城市）选择器 BottomSheet
+ * 全国 480+ 城市两级（省份 → 城市）选择器 BottomSheet。
+ *
+ * 搜索框走 [CityCatalogSearch]：中文名 / 全拼 / 首字母 / adcode 四路匹配并按匹配度排序（玉林、yulin、yl 都能找到玉林）。
+ * 「最近搜索」是城市弹窗自己的搜索记录，条目删除和「清空」确认的做法照抄顶栏搜索页（两个并排点击区，点字回填、点 × 删除）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -207,9 +228,38 @@ fun CityPickerBottomSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     hotCities: List<TransitCity>? = null,
-    allCities: List<TransitCity> = cities
+    allCities: List<TransitCity> = cities,
+    /** 城市搜索记录（最新在前），来自 [com.trackr.feature.bus.home.BusHomeUiState.citySearchHistory] */
+    cityHistory: List<String> = emptyList(),
+    onHistoryClick: (String) -> Unit = {},
+    onHistoryRemove: (String) -> Unit = {},
+    /** 「清空」二次确认后回调（删全部记录） */
+    onHistoryClear: () -> Unit = {},
+    /** 键盘「搜索」按下：当前词记进搜索记录 */
+    onQuerySubmit: () -> Unit = {},
+    /** 长辈版：搜索记录 chip 用 ≥44dp 的点击区（AGENTS §5，功能与标准版对齐） */
+    elderMode: Boolean = false
 ) {
     val effectiveCities = if (allCities.isNotEmpty()) allCities else cities
+    var showClearHistoryDialog by rememberSaveable { mutableStateOf(false) }
+
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            title = { Text(stringResource(BusRes.string.bus_city_clear_history_title)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearHistoryDialog = false
+                    onHistoryClear()
+                }) {
+                    Text(stringResource(Res.string.action_clear), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) { Text(stringResource(Res.string.action_cancel)) }
+            }
+        )
+    }
 
     TrackrBottomSheet(
         onDismissRequest = onDismiss,
@@ -254,6 +304,8 @@ fun CityPickerBottomSheet(
                 placeholder = { Text(stringResource(BusRes.string.bus_city_search_hint)) },
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onQuerySubmit() }),
                 leadingIcon = {
                     Icon(imageVector = vectorResource(Res.drawable.ic_search), contentDescription = stringResource(BusRes.string.bus_city_search))
                 },
@@ -269,14 +321,9 @@ fun CityPickerBottomSheet(
             Spacer(modifier = Modifier.height(10.dp))
 
             if (searchQuery.isNotBlank()) {
-                // 搜索结果直接展示
+                // 搜索结果：多路匹配 + 档位排序（精确 > 前缀 > 包含 > 首字母 > adcode），同档按省份顺序
                 val matchingCities = remember(effectiveCities, searchQuery) {
-                    val q = searchQuery.trim().lowercase()
-                    effectiveCities.filter {
-                        it.cityName.lowercase().contains(q) ||
-                            it.pinyin.lowercase().contains(q) ||
-                            (it.province.ifBlank { ProvinceCityCatalog.inferProvince(it.cityName) }).lowercase().contains(q)
-                    }
+                    CityCatalogSearch.filter(effectiveCities, searchQuery)
                 }
 
                 Row(
@@ -404,6 +451,39 @@ fun CityPickerBottomSheet(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
+
+                // 城市搜索记录：做法照抄顶栏搜索页（点字回填、点 × 单删、「清空」二次确认后全清）
+                if (cityHistory.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = stringResource(BusRes.string.bus_city_recent_search),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(onClick = { showClearHistoryDialog = true }) {
+                            Text(stringResource(Res.string.action_clear))
+                        }
+                    }
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        cityHistory.forEach { word ->
+                            CityHistoryChip(
+                                word = word,
+                                elderMode = elderMode,
+                                onClick = { onHistoryClick(word) },
+                                onRemove = { onHistoryRemove(word) }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
                 // 省份-城市双列联动选择器
                 val provinceMap = remember(effectiveCities) {
@@ -553,6 +633,62 @@ fun CityPickerBottomSheet(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 城市搜索记录的一个词：点文字填回搜索框，点 × 只删这个词。
+ * 结构照抄顶栏搜索页的 HistoryChip（两个并排点击区——嵌套可点图标的小点击区会被放大，点字右半边会误删）。
+ * elderMode 下整条 ≥44dp，满足长辈版可点区要求。
+ */
+@Composable
+private fun CityHistoryChip(
+    word: String,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    elderMode: Boolean = false
+) {
+    val chipHeight = if (elderMode) 44.dp else 32.dp
+    val removeWidth = if (elderMode) 48.dp else 40.dp
+    val iconSize = if (elderMode) 22.dp else 16.dp
+    val shape = MaterialTheme.shapes.small
+    Row(
+        modifier = modifier
+            .height(chipHeight)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .clickable(onClick = onClick)
+                .padding(start = 12.dp, end = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = word,
+                style = if (elderMode) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(removeWidth)
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = vectorResource(Res.drawable.ic_close),
+                contentDescription = stringResource(BusRes.string.bus_city_history_delete, word),
+                modifier = Modifier.size(iconSize),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

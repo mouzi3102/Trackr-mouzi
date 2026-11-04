@@ -593,6 +593,7 @@ class ScreenshotGeneratorTest {
             settings = fakeRepo,
             favorites = fakeRepo,
             realtime = fakeRepo,
+            cityHistory = fakeRepo,
             userLocationStore = TransitUserLocationStore(fakeRepo),
             transitCodeLauncher = FakeTransitCodeLauncher(),
             enableAutoPolling = false
