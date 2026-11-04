@@ -167,7 +167,9 @@ class DefaultBackupRepository(
                 entries.asSequence()
                     .filter { !it.isCollection && it.name.isNotBlank() }
                     .map { RemoteBackupFile(name = it.name, lastModified = it.lastModified) }
-                    .sortedByDescending { it.name } // 文件名带时间戳，倒序 = 新的在前
+                    // 固定名的当前备份排最前，其余（老版本留下的带时间戳文件）按名字倒序 = 新的在前
+                    .sortedWith(compareByDescending<RemoteBackupFile> { it.name == WebDavConnection.BACKUP_FILE_NAME }
+                        .thenByDescending { it.name })
                     .toList()
             }
         }
@@ -180,7 +182,8 @@ class DefaultBackupRepository(
         val directoryUrl = joinWebDavUrl(connection.baseUrl, connection.remoteDir)
         val createdAt = nowMillis()
         val json = withContext(Dispatchers.Default) { encodeBackupJson(collectPayload(createdAt)) }
-        val fileName = backupFileNameFor(connection.filePrefix, createdAt)
+        // 每次备份都写同一个文件名（PUT 覆盖上一份）：网盘里不会堆一串历史文件，用户只要「最近一次」
+        val fileName = WebDavConnection.BACKUP_FILE_NAME
         ensureDirectoryChain(auth, connection.baseUrl, connection.remoteDir)
         val response = transport.putText(joinWebDavUrl(directoryUrl, fileName), auth, json)
         if (!response.isSuccess) {

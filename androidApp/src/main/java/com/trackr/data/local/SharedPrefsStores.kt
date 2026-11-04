@@ -146,6 +146,8 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         username = if (prefs.contains(KEY_WEBDAV_USERNAME)) prefs.getString(KEY_WEBDAV_USERNAME, null) else null,
         remoteDir = if (prefs.contains(KEY_WEBDAV_REMOTE_DIR)) prefs.getString(KEY_WEBDAV_REMOTE_DIR, null) else null,
         filePrefix = if (prefs.contains(KEY_WEBDAV_FILE_PREFIX)) prefs.getString(KEY_WEBDAV_FILE_PREFIX, null) else null,
+        password = prefs.getString(KEY_WEBDAV_PASSWORD, null),
+        rememberPassword = if (prefs.contains(KEY_WEBDAV_REMEMBER_PASSWORD)) prefs.getBoolean(KEY_WEBDAV_REMEMBER_PASSWORD, true) else null,
         lastBackupAtMillis = if (prefs.contains(KEY_WEBDAV_LAST_BACKUP_AT)) prefs.getLong(KEY_WEBDAV_LAST_BACKUP_AT, 0L) else null
     )
 
@@ -156,6 +158,8 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         put(KEY_WEBDAV_USERNAME, values.username)
         put(KEY_WEBDAV_REMOTE_DIR, values.remoteDir)
         put(KEY_WEBDAV_FILE_PREFIX, values.filePrefix)
+        put(KEY_WEBDAV_PASSWORD, values.password?.ifBlank { null })
+        values.rememberPassword?.let { editor.putBoolean(KEY_WEBDAV_REMEMBER_PASSWORD, it) }
         val lastBackupAt = values.lastBackupAtMillis
         if (lastBackupAt == null) {
             editor.remove(KEY_WEBDAV_LAST_BACKUP_AT)
@@ -184,6 +188,8 @@ class SharedPrefsTransitStore(private val prefs: SharedPreferences) : TransitLoc
         private const val KEY_WEBDAV_BASE_URL = "webdav_base_url"
         private const val KEY_WEBDAV_USERNAME = "webdav_username"
         private const val KEY_WEBDAV_REMOTE_DIR = "webdav_remote_dir"
+        private const val KEY_WEBDAV_PASSWORD = "webdav_password"
+        private const val KEY_WEBDAV_REMEMBER_PASSWORD = "webdav_remember_password"
         private const val KEY_WEBDAV_FILE_PREFIX = "webdav_file_prefix"
         private const val KEY_WEBDAV_LAST_BACKUP_AT = "webdav_last_backup_at"
         /** 收藏的车（[SharedPrefsFavoritesStore] 读写） */

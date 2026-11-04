@@ -52,10 +52,11 @@ data class PendingRestore(val fileName: String, val createdAtText: String?, val 
 data class WebDavBackupUiState(
     val baseUrl: String = "",
     val username: String = "",
+    /** 远端目录：不再给用户填（对话框里删掉了），保留存储值让老配置继续能读到自己的备份 */
     val remoteDir: String = "",
-    val filePrefix: String = "",
-    /** 只在内存里，本次会话有效；不写 DataStore、不进任何日志 */
     val password: String = "",
+    /** 记住登录信息（默认开）；关掉会把已存的密码清掉 */
+    val rememberPassword: Boolean = true,
     val busy: Boolean = false,
     val lastBackupText: String? = null,
     val files: List<RemoteBackupFile> = emptyList(),
@@ -70,9 +71,10 @@ data class WebDavBackupUiState(
 sealed interface WebDavBackupEvent {
     data class EditBaseUrl(val text: String) : WebDavBackupEvent
     data class EditUsername(val text: String) : WebDavBackupEvent
-    data class EditRemoteDir(val text: String) : WebDavBackupEvent
-    data class EditFilePrefix(val text: String) : WebDavBackupEvent
     data class EditPassword(val text: String) : WebDavBackupEvent
+
+    /** 「记住密码」开关：关掉会立刻清除存的密码（登录信息留在本机，不上传任何东西） */
+    data class SetRememberPassword(val enabled: Boolean) : WebDavBackupEvent
 
     /** 「用坚果云」：一键填入服务器地址（https + /dav），用户名 / 安全码还得用户自己填 */
     data object ApplyJianguoYun : WebDavBackupEvent
@@ -106,7 +108,8 @@ class WebDavBackupViewModel(
                     username = connection.username,
                     // 没存过时用仓库默认值显示（存了空串按「没填」处理）
                     remoteDir = connection.remoteDir,
-                    filePrefix = connection.filePrefix,
+                    password = connection.password,
+                    rememberPassword = connection.rememberPassword,
                     lastBackupText = connection.lastBackupAtMillis?.let(::formatBackupLocalTime)
                 )
             }
@@ -117,9 +120,13 @@ class WebDavBackupViewModel(
         when (event) {
             is WebDavBackupEvent.EditBaseUrl -> _uiState.update { it.copy(baseUrl = event.text) }
             is WebDavBackupEvent.EditUsername -> _uiState.update { it.copy(username = event.text) }
-            is WebDavBackupEvent.EditRemoteDir -> _uiState.update { it.copy(remoteDir = event.text) }
-            is WebDavBackupEvent.EditFilePrefix -> _uiState.update { it.copy(filePrefix = event.text) }
             is WebDavBackupEvent.EditPassword -> _uiState.update { it.copy(password = event.text) }
+            is WebDavBackupEvent.SetRememberPassword -> {
+                val enabled = event.enabled
+                _uiState.update { it.copy(rememberPassword = enabled) }
+                // 立刻落盘：关掉「记住密码」时仓库会不再写密码列并清掉存过的那份
+                withAction { _uiState.value.persistToConfig() }
+            }
             WebDavBackupEvent.ApplyJianguoYun -> _uiState.update { it.copy(baseUrl = WebDavConnection.PRESET_JIANGUOYUN_URL) }
             WebDavBackupEvent.Back -> Unit
             is WebDavBackupEvent.MessageShown ->
@@ -247,6 +254,15 @@ class WebDavBackupViewModel(
         }
     }
 
+    /** 界面表单 → 存储里的连接配置；密码落不落盘由「记住密码」决定（关掉时仓库会清掉存过的那份） */
+    private suspend fun WebDavBackupUiState.persistToConfig() = configRepository.saveConnection(
+        baseUrl = baseUrl,
+        username = username,
+        remoteDir = remoteDir,
+        password = password,
+        rememberPassword = rememberPassword
+    )
+
     /** 操作前把表单里的连接设置（除密码）静默存一份；地址或密码为空时提示并返回 false（别拿空密码去打服务器） */
     private suspend fun persistFormAndCheckUrl(): Boolean {
         val state = _uiState.value
@@ -258,12 +274,7 @@ class WebDavBackupViewModel(
             post(WebDavMessage.What.NO_PASSWORD)
             return false
         }
-        configRepository.saveConnection(
-            baseUrl = state.baseUrl,
-            username = state.username,
-            remoteDir = state.remoteDir,
-            filePrefix = state.filePrefix
-        )
+        state.persistToConfig()
         return true
     }
 
@@ -295,4 +306,6 @@ internal fun formatBackupLocalTime(epochMillis: Long): String {
     val local = Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(kotlinx.datetime.TimeZone.of("Asia/Shanghai"))
     fun pad(v: Int) = v.toString().padStart(2, '0')
     return "${local.year}-${pad(local.monthNumber)}-${pad(local.dayOfMonth)} ${pad(local.hour)}:${pad(local.minute)}"
+
+
 }

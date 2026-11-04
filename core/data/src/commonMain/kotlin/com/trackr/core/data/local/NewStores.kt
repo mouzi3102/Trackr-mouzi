@@ -136,6 +136,8 @@ class RoomDataStoreTransitStore(
             username = prefs[SettingsKeys.WEBDAV_USERNAME],
             remoteDir = prefs[SettingsKeys.WEBDAV_REMOTE_DIR],
             filePrefix = prefs[SettingsKeys.WEBDAV_FILE_PREFIX],
+            password = prefs[SettingsKeys.WEBDAV_PASSWORD],
+            rememberPassword = prefs[SettingsKeys.WEBDAV_REMEMBER_PASSWORD],
             lastBackupAtMillis = prefs[SettingsKeys.WEBDAV_LAST_BACKUP_AT]
         )
     }
@@ -149,6 +151,8 @@ class RoomDataStoreTransitStore(
             put(SettingsKeys.WEBDAV_USERNAME, values.username)
             put(SettingsKeys.WEBDAV_REMOTE_DIR, values.remoteDir)
             put(SettingsKeys.WEBDAV_FILE_PREFIX, values.filePrefix)
+            put(SettingsKeys.WEBDAV_PASSWORD, values.password?.ifBlank { null })
+            put(SettingsKeys.WEBDAV_REMEMBER_PASSWORD, values.rememberPassword)
             put(SettingsKeys.WEBDAV_LAST_BACKUP_AT, values.lastBackupAtMillis)
         }
     }

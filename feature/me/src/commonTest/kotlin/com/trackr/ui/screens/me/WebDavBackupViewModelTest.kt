@@ -19,6 +19,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -89,12 +90,25 @@ class WebDavBackupViewModelTest {
         }
     }
 
+    /** 像真仓库一样按 `rememberPassword` 决定密码落不落盘（关掉时要能清掉存过的那份） */
     private class FakeConfig(var connection: WebDavConnection = WebDavConnection()) : WebDavConfigRepository {
-        var saved = 0
+        var saves = 0
         override suspend fun load() = connection
-        override suspend fun saveConnection(baseUrl: String, username: String, remoteDir: String, filePrefix: String) {
-            saved++
-            connection = connection.copy(baseUrl = baseUrl, username = username, remoteDir = remoteDir, filePrefix = filePrefix)
+        override suspend fun saveConnection(
+            baseUrl: String,
+            username: String,
+            remoteDir: String,
+            password: String,
+            rememberPassword: Boolean
+        ) {
+            saves++
+            connection = connection.copy(
+                baseUrl = baseUrl,
+                username = username,
+                remoteDir = remoteDir,
+                password = if (rememberPassword) password else "",
+                rememberPassword = rememberPassword
+            )
         }
 
         override suspend fun recordBackupSuccess(atMillis: Long) = Unit
@@ -149,6 +163,36 @@ class WebDavBackupViewModelTest {
         assertEquals(WebDavConnection.PRESET_JIANGUOYUN_URL, vm.uiState.value.baseUrl)
         assertTrue(vm.uiState.value.baseUrl.startsWith("https://"))
         assertTrue(vm.uiState.value.baseUrl.endsWith("/dav/"))
+    }
+
+    @Test
+    fun savedLoginInfoIsPrefilledNextTime() = runTest(main.dispatcher) {
+        // 上一次勾了「记住密码」并保存过 → 这次进页面 URL / 邮箱 / 安全码都在
+        val config = FakeConfig(
+            WebDavConnection(
+                baseUrl = "https://dav.jianguoyun.com/dav/",
+                username = "me@example.com",
+                password = "安全码-abc",
+                rememberPassword = true
+            )
+        )
+        val vm = viewModel(FakeBackupRepository(), config)
+        val state = vm.uiState.value
+        assertEquals("me@example.com", state.username)
+        assertEquals("安全码-abc", state.password)
+        assertTrue(state.rememberPassword)
+    }
+
+    @Test
+    fun uncheckingRememberClearsStoredPasswordImmediately() = runTest(main.dispatcher) {
+        val config = FakeConfig(
+            WebDavConnection(baseUrl = "https://dav.jianguoyun.com/dav/", username = "me@example.com", password = "安全码-abc")
+        )
+        val vm = viewModel(FakeBackupRepository(), config)
+        vm.onEvent(WebDavBackupEvent.SetRememberPassword(false))
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.rememberPassword)
+        assertEquals("", config.connection.password)
     }
 
     @Test

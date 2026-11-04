@@ -15,8 +15,13 @@ data class WebDavConnection(
     val username: String = "",
     /** 远端目录路径；空 = 直接建在服务器地址指向的目录下 */
     val remoteDir: String = DEFAULT_REMOTE_DIR,
-    /** 备份文件名前缀；留空用 [DEFAULT_FILE_PREFIX] */
-    val filePrefix: String = DEFAULT_FILE_PREFIX,
+    /**
+     * 登录密码（坚果云的「安全码」）。用户明确要求「密码要有记忆、保存登录信息」，
+     * 所以随连接配置一起落盘；[rememberPassword] 为 false 时不存并在保存时清掉。
+     */
+    val password: String = "",
+    /** 关掉「记住密码」后：本次输入仍可用，但不落盘，且会把已存的那份清除 */
+    val rememberPassword: Boolean = true,
     /** 上次成功备份时刻（epoch millis）；null = 从没成功过 */
     val lastBackupAtMillis: Long? = null
 ) {
@@ -28,7 +33,8 @@ data class WebDavConnection(
          * （`normalizeWebDavBaseUrl` 会替用户把没写全的补上）；用户名填账户邮箱、密码填「安全码」。
          */
         const val PRESET_JIANGUOYUN_URL = "https://dav.jianguoyun.com/dav/"
-        const val DEFAULT_FILE_PREFIX = "trackr_backup"
+        /** 备份文件名固定一个：每次备份覆盖上一次（用户要求，网盘里不会堆一堆历史文件） */
+        const val BACKUP_FILE_NAME = "trackr_backup.json"
     }
 }
 
@@ -36,12 +42,13 @@ data class WebDavConnection(
 interface WebDavConfigRepository {
     suspend fun load(): WebDavConnection
 
-    /** 四舍五入的语义：空串按「没填」删除；[lastBackupAtMillis] 传 null 保留原值 */
+    /** 空串按「没填」删除；[lastBackupAtMillis] 传 null 保留原值；[rememberPassword] 为 false 时密码不落盘并清掉存过的那份 */
     suspend fun saveConnection(
         baseUrl: String,
         username: String,
         remoteDir: String,
-        filePrefix: String
+        password: String,
+        rememberPassword: Boolean
     )
 
     /** PUT 成功后记「上次备份时间」 */
@@ -57,19 +64,29 @@ class StoreWebDavConfigRepository(private val store: TransitLocalStore) : WebDav
             baseUrl = values.baseUrl.orEmpty(),
             username = values.username.orEmpty(),
             remoteDir = values.remoteDir?.takeIf { it.isNotEmpty() } ?: WebDavConnection.DEFAULT_REMOTE_DIR,
-            filePrefix = values.filePrefix?.takeIf { it.isNotBlank() } ?: WebDavConnection.DEFAULT_FILE_PREFIX,
+            password = values.password.orEmpty(),
+            rememberPassword = values.rememberPassword ?: true,
             lastBackupAtMillis = values.lastBackupAtMillis
         )
     }
 
-    override suspend fun saveConnection(baseUrl: String, username: String, remoteDir: String, filePrefix: String) {
+    override suspend fun saveConnection(
+        baseUrl: String,
+        username: String,
+        remoteDir: String,
+        password: String,
+        rememberPassword: Boolean
+    ) {
         val current = store.loadWebDavConfig()
         store.saveWebDavConfig(
             WebDavConfigValues(
                 baseUrl = baseUrl.trim().ifBlank { null },
                 username = username.trim().ifBlank { null },
+                // 旧的自定义前缀留着不动（只用于历史文件；新备份统一用固定文件名）
+                filePrefix = current.filePrefix,
                 remoteDir = remoteDir.trim().ifBlank { null },
-                filePrefix = filePrefix.trim().ifBlank { null },
+                password = if (rememberPassword) password.trim().ifBlank { null } else null,
+                rememberPassword = rememberPassword,
                 lastBackupAtMillis = current.lastBackupAtMillis
             )
         )

@@ -61,7 +61,13 @@ private class FakeConfigRepository(
     var lastRecorded: Long? = null
 ) : WebDavConfigRepository {
     override suspend fun load() = connection
-    override suspend fun saveConnection(baseUrl: String, username: String, remoteDir: String, filePrefix: String) = Unit
+    override suspend fun saveConnection(
+        baseUrl: String,
+        username: String,
+        remoteDir: String,
+        password: String,
+        rememberPassword: Boolean
+    ) = Unit
     override suspend fun recordBackupSuccess(atMillis: Long) {
         lastRecorded = atMillis
     }
@@ -144,7 +150,8 @@ class BackupRepositoryScenarioTest {
         val (sut, _, configRepo) = repo(transport, config = config)
         transport.propfindReply = 404 to ""
         val fileName = sut.createAndUploadBackup("pw").getOrThrow()
-        assertEquals("trackr_backup_20261104-153012.json", fileName)
+        // 固定文件名：每次备份覆盖上一份，网盘里不堆历史文件
+        assertEquals("trackr_backup.json", fileName)
         assertEquals(listOf("PROPFIND", "MKCOL", "PUT"), transport.calls.map { it.verb })
         val put = transport.calls.last()
         assertTrue(put.url.endsWith(fileName), put.url)

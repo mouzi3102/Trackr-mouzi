@@ -93,6 +93,10 @@ data class WebDavConfigValues(
     val username: String? = null,
     val remoteDir: String? = null,
     val filePrefix: String? = null,
+    /** 坚果云「安全码」等登录密码；null / 空 = 没存（或用户关掉了「记住密码」） */
+    val password: String? = null,
+    /** null = 没存过（按记住处理）；false = 用户明确不记住 */
+    val rememberPassword: Boolean? = null,
     val lastBackupAtMillis: Long? = null
 )
 

@@ -117,11 +117,7 @@
     <string name="me_webdav_server_placeholder">https://dav.jianguoyun.com/dav/</string>
     <string name="me_webdav_username">用户名</string>
     <string name="me_webdav_password">密码</string>
-    <string name="me_webdav_password_hint">密码只留在内存里，退出应用就没。坚果云要填「安全码」（账户信息 → 安全码），用户名填账户邮箱；服务端只支持 https</string>
-    <string name="me_webdav_dir">远端目录</string>
-    <string name="me_webdav_dir_placeholder">trackr_backups（不存在会在备份时自动创建）</string>
-    <string name="me_webdav_prefix">文件名前缀（可选）</string>
-    <string name="me_webdav_prefix_placeholder">trackr_backup_</string>
+    <string name="me_webdav_password_hint">坚果云填「安全码」（账户信息 → 安全码），用户名填账户邮箱；服务端只支持 https</string>
     <string name="me_webdav_test">测试连接</string>
     <string name="me_webdav_backup_now">立即备份</string>
     <string name="me_webdav_refresh">刷新列表</string>
@@ -130,6 +126,9 @@
     <string name="me_webdav_remote_files">手机上的备份（WebDAV 服务器）</string>
     <string name="me_webdav_files_empty">目录里没有备份文件，先点「立即备份」或用别的设备备份过再刷新</string>
     <string name="me_webdav_files_hint">点「刷新列表」读取远端目录；每条文件用「恢复」按钮恢复，「删除」删掉远端文件</string>
+    <string name="me_webdav_remember">记住密码</string>
+    <string name="me_webdav_remember_desc">登录信息（含坚果云的「安全码」）保存在本机设置里，下次打开这一页自动填好；关掉立刻清除</string>
+    <string name="me_webdav_overwrite_hint">每次备份都覆盖上一份（远端始终只有 trackr_backup.json 这一个当前备份）</string>
     <string name="me_webdav_restore">恢复</string>
     <string name="me_webdav_preset_jianguo">用坚果云</string>
     <string name="me_webdav_password_show">显示</string>

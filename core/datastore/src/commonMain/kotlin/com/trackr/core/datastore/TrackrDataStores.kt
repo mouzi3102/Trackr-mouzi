@@ -79,6 +79,15 @@ object SettingsKeys {
     val WEBDAV_REMOTE_DIR = stringPreferencesKey("webdav_remote_dir")
     val WEBDAV_FILE_PREFIX = stringPreferencesKey("webdav_file_prefix")
 
+    /**
+     * WebDAV 登录信息（用户要求：密码要记忆、要保存登录信息，所以这里落盘）。
+     * 只存在应用私有目录的同一个设置文件里，不写日志、不进备份 JSON；「记住密码」关掉时立即清除。
+     */
+    val WEBDAV_PASSWORD = stringPreferencesKey("webdav_password")
+
+    /** 是否记住 WebDAV 密码（没有 = 记住，行为与首次填写一致） */
+    val WEBDAV_REMEMBER_PASSWORD = booleanPreferencesKey("webdav_remember_password")
+
     /** 上次成功备份的时间（epoch millis）；没有 = 从没备份过 */
     val WEBDAV_LAST_BACKUP_AT = longPreferencesKey("webdav_last_backup_at")
 

@@ -275,10 +275,3 @@ fun formatBackupInstantUtc(epochMillis: Long): String {
     val p = utcParts(epochMillis)
     return "${pad(p[0], 4)}-${pad(p[1], 2)}-${pad(p[2], 2)} ${pad(p[3], 2)}:${pad(p[4], 2)}:${pad(p[5], 2)}"
 }
-
-/** 备份文件名：`<前缀>_yyyyMMdd-HHmmss.json`（参考实现是固定名一份；这里加时间戳可以多份共存、可挑选恢复） */
-fun backupFileNameFor(prefix: String?, epochMillis: Long): String {
-    val cleanPrefix = prefix?.trim()?.trim('/')?.takeIf { it.isNotEmpty() } ?: "trackr_backup"
-    val p = utcParts(epochMillis)
-    return "${cleanPrefix}_${pad(p[0], 4)}${pad(p[1], 2)}${pad(p[2], 2)}-${pad(p[3], 2)}${pad(p[4], 2)}${pad(p[5], 2)}.json"
-}

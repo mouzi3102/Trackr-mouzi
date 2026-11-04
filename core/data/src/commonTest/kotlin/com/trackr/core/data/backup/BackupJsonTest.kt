@@ -247,18 +247,11 @@ class BackupJsonTest {
     }
 
     @Test
-    fun utcTimestampAndFileName() {
+    fun utcTimestampFormatting() {
         assertEquals("2026-11-04 15:30:12", formatBackupInstantUtc(1_793_806_212_000))
         assertEquals("2000-01-01 00:00:00", formatBackupInstantUtc(946_684_800_000))
         // 负数时刻也要正确（floorDiv）
         assertEquals("1969-12-31 23:59:59", formatBackupInstantUtc(-1_000))
-        assertEquals(
-            "trackr_backup_20261104-153012.json",
-            backupFileNameFor("trackr_backup", 1_793_806_212_000)
-        )
-        assertEquals("bk_20261104-153012.json", backupFileNameFor(" bk ", 1_793_806_212_000))
-        // 前缀缺省
-        assertEquals("trackr_backup_19700101-000000.json", backupFileNameFor(null, 0))
     }
 
     private fun stop(id: String) = FavoriteStationLine(

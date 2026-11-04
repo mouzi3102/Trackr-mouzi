@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -212,40 +213,29 @@ fun WebDavBackupScreen(
                                 .fillMaxWidth()
                                 .testTag("field_webdav_password")
                         )
-                        OutlinedTextField(
-                            value = state.remoteDir,
-                            onValueChange = { onEvent(WebDavBackupEvent.EditRemoteDir(it)) },
-                            label = { Text(stringResource(MeRes.string.me_webdav_dir)) },
-                            placeholder = { Text(stringResource(MeRes.string.me_webdav_dir_placeholder)) },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("field_webdav_dir")
-                        )
-                        OutlinedTextField(
-                            value = state.filePrefix,
-                            onValueChange = { onEvent(WebDavBackupEvent.EditFilePrefix(it)) },
-                            label = { Text(stringResource(MeRes.string.me_webdav_prefix)) },
-                            placeholder = { Text(stringResource(MeRes.string.me_webdav_prefix_placeholder)) },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("field_webdav_prefix")
-                        )
+                        // 「记住密码」：登录信息（含坚果云安全码）留在本机设置里，关掉即清除
                         Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("row_webdav_remember")
                         ) {
-                            Text(
-                                text = state.lastBackupText
-                                    ?.let { stringResource(MeRes.string.me_webdav_last_backup, it) }
-                                    ?: stringResource(MeRes.string.me_webdav_last_backup_none),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f).testTag("text_last_backup")
+                            Checkbox(
+                                checked = state.rememberPassword,
+                                onCheckedChange = { onEvent(WebDavBackupEvent.SetRememberPassword(it)) },
+                                enabled = !state.busy
                             )
-                            if (state.busy) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(MeRes.string.me_webdav_remember),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = stringResource(MeRes.string.me_webdav_remember_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
@@ -314,6 +304,15 @@ fun WebDavBackupScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("text_webdav_scope")
+                )
+                Text(
+                    text = stringResource(MeRes.string.me_webdav_overwrite_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                        .testTag("text_webdav_overwrite")
                 )
             }
 
