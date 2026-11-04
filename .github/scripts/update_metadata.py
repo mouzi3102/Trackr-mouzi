@@ -67,14 +67,14 @@ def main():
         else f"https://github.com/{repo}/releases"
     )
 
-    # 按 ABI 分包：release 资产统一命名 trackr-<版本>-<abi>.apk，App 按设备架构直接下对应包。
-    # 没有 tag（workflow_dispatch 手动触发）时不写细分地址，App 回退到 downloadUrl。
+    # 只出 arm64-v8a 一个包（本仓库不含任何原生库，多一个 ABI 只是重复的 dex）：
+    # release 资产命名 trackr-<版本>-arm64-v8a.apk，App 按设备架构取地址，取不到就回退 downloadUrl。
+    # 没有 tag（workflow_dispatch 手动触发）时不写细分地址，App 同样回退到 downloadUrl。
     download_urls = {}
     if tag:
         asset_base = f"https://github.com/{repo}/releases/download/{tag}"
         download_urls = {
             "arm64-v8a": f"{asset_base}/trackr-{version_name}-arm64-v8a.apk",
-            "armeabi-v7a": f"{asset_base}/trackr-{version_name}-armeabi-v7a.apk",
         }
 
     update_data = {

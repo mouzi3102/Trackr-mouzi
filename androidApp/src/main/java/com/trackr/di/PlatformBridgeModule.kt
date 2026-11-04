@@ -50,7 +50,7 @@ val platformBridgeModule: Module = module {
     factory { androidAppVersion(androidContext()) }
     // 构建时注入的高德 Key（和 StorageBackend 里给 AmapKeyRepository 的是同一组值）；「更多」页 Key 对话框判断「已配置」用
     // 不含高德 Android 地图 SDK 的精简构建：Android 槽不生效，路线页不画地图（算路仍走 Web 服务 Key）
-    single { AmapKeyDefaults(androidKey = BuildConfig.AMAP_ANDROID_KEY, webKey = BuildConfig.AMAP_WEB_KEY, hasAndroidMapSdk = false) }
+    single { AmapKeyDefaults(webKey = BuildConfig.AMAP_WEB_KEY, hasAndroidMapSdk = false) }
 }
 
 /** 乘车码：转调 [TransitCodeHelper]（Intent 都带 NEW_TASK，用 applicationContext 打开和原来一样） */

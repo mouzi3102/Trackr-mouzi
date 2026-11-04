@@ -99,7 +99,7 @@ class StorageBackend private constructor(
 
         /** 构建时注入的高德 Key（local.properties / 环境变量），两槽各自兜底（§2.5） */
         private fun amapKeyDefaults() = AmapKeyDefaults(
-            androidKey = BuildConfig.AMAP_ANDROID_KEY,
+            // 不含高德 Android SDK：androidKey 用 AmapKeyDefaults 的默认空串
             webKey = BuildConfig.AMAP_WEB_KEY,
             hasAndroidMapSdk = false
         )

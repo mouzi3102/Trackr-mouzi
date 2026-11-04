@@ -182,122 +182,60 @@
 
 ---
 
-## 🔑 高德 SDK 用法
+## 🔑 高德 Key 用法
 
-路线规划页的地图和公交算路依赖高德。这一节说明**项目里怎么用**，以及**自己构建时怎么配 Key**。
+**本仓库不集成高德 Android SDK**（一体化包光原生库就 30 MB+，会把 4.6 MB 的包顶到 40 MB 以上），
+路线规划只走 **Web 服务**：`restapi.amap.com` 的公交路径规划与输入提示接口，全部 HTTPS。
 
-### 用到了哪些能力
-
-**本仓库不集成高德 Android SDK**（一体化包 30 MB+ 原生库，会把 4.6 MB 的包顶到 40 MB 以上），只走 Web 服务：
-
-| 能力 | 实现 | 使用哪个 Key |
+| 能力 | 实现 | 需要什么 |
 | :--- | :--- | :--- |
-| 公交算路（换乘方案、步行段、票价）、起终点输入提示 | `restapi.amap.com` 的公交路径规划 / `inputtips` 接口（`:core:network` 的 `AmapTransitApiClient`） | Web 服务 Key |
-| 平面地图渲染 | 不做。路线页显示纯色兜底背景（`isRouteMapSupported = false`，`NoMapBackground`），方案折线只参与算路不对绘 | —— |
-| 定位 | 系统 `LocationManager`（本来就没用高德定位取点） | 不需要 |
+| 公交算路（换乘方案、步行段、票价）、起终点输入提示 | `:core:network` 的 `AmapTransitApiClient`（`/v3/direction/transit/integrated`、`/v3/assistant/inputtips`） | **Web 服务 Key** |
+| 平面地图渲染 | 不做。路线页显示纯色底（`isRouteMapSupported = false` → `NoMapBackground`），方案折线参与算路数据但不对绘 | —— |
+| 定位 | 系统 `LocationManager`，WGS-84 | 不需要 |
 
-因此 Android 平台 Key 在这份构建里没有作用：`AmapKeyRules.status()` 拿到 `hasAndroidMapSdk = false`，`effectiveAndroidKey` 恒为空，「我的 → 高德 Key」页也不再显示 Android 槽。`commonMain` 和其他模块从不引用 `com.amap.*`。
+所以只有**一类** Key 有用：
 
-### 两类 Key 严格分开
+- **Web 服务 Key**：不绑包名、不绑签名 SHA-1，在 https://console.amap.com 建「Web 服务」类型即可。
+- Android 平台 Key：这份构建里没有它的用途。`AmapKeyRules.status()` 拿到 `hasAndroidMapSdk = false`，
+  `effectiveAndroidKey` 恒为空，「我的 → 高德 Key」页只显示 Web 服务 Key 一个槽
+  （两槽的存储结构保留，是为了以后真要接地图时不用迁移数据）。
 
-高德的「Android 平台 Key」和「Web 服务 Key」互不通用，填反是地图空白最常见的原因。
+### 配置
 
-| Key 类型 | 用途 | 是否绑定包名 |
-| :--- | :--- | :--- |
-| Android 平台 Key | 地图渲染、输入提示、公交算路 SDK | 是，绑定包名 + 签名 SHA-1 |
-| Web 服务 Key | `restapi.amap.com` 算路兜底 | 否 |
+生效优先级：**App 内填的 > 构建时注入的 > 空**。
 
-代码里两个槽位分别存储，互不回落（`AmapKeyRepository`）。生效优先级相同：
+方式一（推荐给使用者）：「我的 → 高德 Key」填 Web 服务 Key，保存后立即生效，不用重新编译。
+首次进路线页会先弹隐私说明，同意后才发请求（`AmapTransitApiClient` 的每次调用都要求已同意）。
 
-```text
-App 内「我的 → 高德 Key」填的  >  local.properties / 环境变量注入的  >  空
-```
-
-两个槽都没有时，底栏不显示「路线」页签；只有 Web 服务 Key 时页签显示，能算路但不画地图；只有 Android Key 时地图和算路都可用。
-
-### 配置 Key
-
-**方式一：应用内填写（推荐给使用者）**
-
-打开「我的 → 高德 Key」，分别填 Android 平台 Key 和 Web 服务 Key，保存后立即生效，不需要重新编译。首次使用会先弹高德隐私说明，同意后才初始化 SDK。
-
-**方式二：构建时注入（推荐给自建打包）**
-
-在 `local.properties`（已被 Git 忽略）里写：
+方式二（推荐给自建打包）：`local.properties`（已被 Git 忽略）或同名环境变量：
 
 ```properties
-# Android 平台 Key，绑定包名 + SHA-1
-AMAP_ANDROID_KEY=你的 Android 平台 Key
-# Web 服务 Key，只用于算路兜底，可选
 AMAP_WEB_KEY=你的 Web 服务 Key
 ```
 
-也可以用同名环境变量。构建时注入的 Android Key 会同时写进 `BuildConfig.AMAP_ANDROID_KEY` 和 Manifest 的 `com.amap.api.v2.apikey` 元数据。查看注入状态：
+查看注入状态：
 
 ```bash
 ./gradlew amapKeyStatus
 ```
 
-输出会列出两个 Key 是否已配置、最终包名，以及「一个 Key 可同时填发布版和调试版 SHA-1」的提示。
+### 算路与降级
 
-**注册 Key 时填什么**
+`AndroidAmapRouteGateway` 直接调 Web 服务：
 
-- 包名：`com.github.u5151561.trackr`（debug 和 release 相同）。
-- SHA-1：在路线规划页点「诊断信息」可以直接复制当前安装包的包名和签名 SHA-1。开源分发的 APK 签名固定，所有人用同一组包名 + SHA-1；自己从源码编译的人签名不同，需要按自己构建的 SHA-1 另注册一个 Key。
-
-### 初始化顺序
-
-顺序错了地图会一直黑屏或空白，所以代码里固定成这条链：
-
-1. `TrackrApp` 启动时把 `BuildConfig` 里的 Key 交给 `MapSdkInitializer`。
-2. 用户同意隐私说明后，`MapsInitializer.updatePrivacyShow/updatePrivacyAgree`、`ServiceSettings`、`AMapLocationClient` 一起完成合规声明。
-3. `MapsInitializer.setApiKey`、`ServiceSettings.setApiKey`、`AMapLocationClient.setApiKey` 注入同一个 Android Key。
-4. 之后才允许创建 `TextureMapView`；`AmapMapSession` 会等容器挂到窗口并完成一帧布局后再 `onCreate`。
-5. 运行期换 Key 会销毁并重建地图实例，因为 SDK 只在创建时读一次 Key。
-
-### 地图实例的生命周期
-
-路线页挂在 Navigation 3 的 entry 上，切走页签时 composable 会被销毁。如果地图跟着销毁，每次切回来都要重新初始化 GL、重新拉瓦片，相机位置也会丢。
-
-`AmapMapSession` 用一个 Activity 级的容器托管 `TextureMapView`：
-
-- 切走页签：只把容器从窗口摘下（`onPause`），地图实例、瓦片缓存、相机位置保留；
-- 切回来：同一个实例重新挂上（`onResume`）；
-- 按 Home 或锁屏：暂停定位与渲染，回前台再恢复；
-- Activity 真正销毁时才 `onDestroy`。
-
-取景和坐标：
-
-- 业务层统一存 WGS-84；交给高德前转成 GCJ-02（`CoordTransform`），否则会偏 300～600 米。
-- 有方案时取景包住所有方案点，并为底部面板留出内边距；只有一个点或所有点重合时用 16 级街道缩放。
-- 没有定位时用当前城市中心兜底，城市中心同样先转 GCJ-02。
-
-### 算路与兜底
-
-`AndroidAmapRouteGateway` 的规则：
-
-1. 先走 Android 搜索 SDK 的公交算路；成功就直接返回。
-2. 只有 SDK **调用失败**（未配 Key、网络、鉴权）才回落到 Web 服务接口。
-3. SDK 成功但结果为空时不再请求 Web，避免重复打接口。
-4. 算路结果按「城市 + 坐标 + 15 分钟时间桶」缓存，输入提示按「城市 + 关键字」缓存。
-5. 所有高德调用都要求用户已同意隐私说明。
-
-降级行为：
+1. 输入提示走 `/v3/assistant/inputtips`，算路走 `/v3/direction/transit/integrated`；缺 Key 或未同意隐私时抛「未配置高德 Web Key」。
+2. 算路结果按「城市 + 坐标 + 15 分钟时间桶」缓存，输入提示按「城市 + 关键字」缓存（`AmapLruCache`）。
+3. 业务层统一存 WGS-84，交给高德前转 GCJ-02（`CoordTransform`），否则会偏 300～600 米。
 
 | 情况 | 界面表现 |
 | :--- | :--- |
-| 两个 Key 都没有 | 底栏不显示「路线」页签，其他功能不受影响 |
-| 只有 Web 服务 Key | 路线页可算路，不显示地图区域 |
-| Android Key 无效 / 未绑定当前签名 | 地图区显示失败原因和「重试」，算路仍可回落 Web |
-| 15 秒内底图没画出来 | 浮层提示检查包名、SHA-1，或是否把 Web Key 当成了地图 Key |
-| 设备是 x86 / x86_64 模拟器 | 原生库缺失，地图不可用；请用真机或 arm 模拟器 |
+| 没有 Web Key（且没有 Android Key） | 底栏不显示「路线」页签，其它功能不受影响 |
+| 配了 Web Key | 路线页可算路、可存成路线收藏；没有地图底图，只显示纯色背景 |
 
 ### 常见问题
 
-- **地图一片空白**：先点「诊断信息」核对包名、SHA-1、Key 来源；再确认填的是 Android 平台 Key，不是 Web 服务 Key。
-- **算路提示额度不足**：Web 服务 Key 的个人开发者配额较低（约 3 QPS），把应用内配置换成自己的 Key。
-- **自己编译后地图不出图**：debug 签名和发布签名不同，需要把当前构建的 SHA-1 也加进同一个 Key，或单独注册。
-- **16 KB 页设备上地图加载失败**：确认依赖是 `11.2.100` 及以上。
+- **算路提示额度不足 / 失败**：高德个人开发者的 Web 服务配额较低（公交路径规划约 3 QPS、每日有总量），换成自己的 Key。
+- **为什么没有地图**：设计上就不集成地图 SDK，包体 4.6 MB 换掉 30 MB+ 原生库。
 
 ---
 

@@ -23,14 +23,8 @@ val localProperties = Properties().apply {
 fun localOrEnv(name: String): String =
     System.getenv(name)?.trim().orEmpty().ifBlank { localProperties.getProperty(name, "").trim() }
 
-// 高德 Android 平台 Key：与「PackageName + 签名 SHA-1」绑定。
-// debug 与 release 使用同一个 PackageName（见下方 buildTypes），而高德控制台允许在**同一个 Key**
-// 里同时填写「发布版 SHA-1」和「调试版 SHA-1」，因此一把 Key 即可同时覆盖两种构建产物。
-val amapAndroidKeyFallback = localOrEnv("AMAP_ANDROID_KEY")
-// 仅在使用自定义签名 / 需要为某个变体单独配 Key 时才需要这两项，通常留空
-val amapAndroidKeyDebug = localOrEnv("AMAP_ANDROID_KEY_DEBUG").ifBlank { amapAndroidKeyFallback }
-val amapAndroidKeyRelease = localOrEnv("AMAP_ANDROID_KEY_RELEASE").ifBlank { amapAndroidKeyFallback }
-// 高德 Web 服务 Key（restapi.amap.com），与 Android 平台 Key 互不通用。
+// 本仓库不集成高德 Android SDK（地图 / 定位 / 搜索一体化包，光原生库 30 MB+），只有 Web 服务 Key 有用：
+// AMAP_ANDROID_KEY* 三个注入项已删除，运行时的 Android 槽由 hasAndroidMapSdk = false 兜住（恒不生效）。
 val amapWebServiceKey = localOrEnv("AMAP_WEB_KEY")
 
 android {
@@ -48,9 +42,6 @@ android {
             "USE_NEW_STORE",
             providers.gradleProperty("trackr.useNewStore").getOrElse("true").toBooleanStrict().toString()
         )
-        buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyRelease\"")
-        // 不含高德 Android SDK：Manifest 里没有 com.amap.api.v2.apikey，不再注入 manifestPlaceholders
-
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -80,15 +71,12 @@ android {
 
     buildTypes {
         debug {
-            // 刻意不再加 .d 后缀：与 release 共用 PackageName，
-            // 这样同一个高德 Key（同时填了发布版 + 调试版 SHA-1）对两种构建都有效。
+            // 刻意不再加 .d 后缀：debug 与 release 共用同一个 PackageName。
             enableUnitTestCoverage = true
-            buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyDebug\"")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            buildConfigField("String", "AMAP_ANDROID_KEY", "\"$amapAndroidKeyRelease\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -194,26 +182,21 @@ dependencies {
 
 /*
  * 高德 Key 注入状态自检：./gradlew amapKeyStatus
- * 用于核对「开放平台注册的包名 + SHA-1」与当前构建产物是否一致。
+ * 只有一项有意义：Web 服务 Key（不集成高德 Android SDK，因此不需要包名 + SHA-1 那套）。
  */
 tasks.register("amapKeyStatus") {
     group = "help"
-    description = "打印高德 Android/Web Key 注入情况与各变体包名"
+    description = "打印高德 Web 服务 Key 注入情况与包名"
     doLast {
         fun state(key: String) = if (key.isEmpty()) "❌ 未配置" else "✅ 已配置（${key.length} 位）"
         println(
             """
             |高德 Key 状态
-            |  AMAP_ANDROID_KEY          : ${state(amapAndroidKeyFallback)}
-            |  AMAP_ANDROID_KEY_DEBUG    : ${state(amapAndroidKeyDebug)}
-            |  AMAP_ANDROID_KEY_RELEASE  : ${state(amapAndroidKeyRelease)}
-            |  AMAP_WEB_KEY              : ${state(amapWebServiceKey)}
+            |  AMAP_WEB_KEY      : ${state(amapWebServiceKey)}
+            |  AMAP_ANDROID_KEY  : 不适用（本构建不含高德 Android SDK）
             |
-            |包名（提交到高德开放平台时填写，debug / release 一致）
-            |  PackageName : com.github.u5151561.trackr
-            |
-            |一个 Key 可同时填写「发布版 SHA-1」与「调试版 SHA-1」，两种构建都能出图。
-            |签名 SHA-1 可在 App 内「配置 Key」弹窗一键复制。
+            |包名  : com.github.u5151561.trackr
+            |Web 服务 Key 不绑包名和签名，填上就能用。
             """.trimMargin()
         )
     }

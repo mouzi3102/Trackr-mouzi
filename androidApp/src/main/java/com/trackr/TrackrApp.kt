@@ -26,8 +26,8 @@ class TrackrApp : Application() {
         // 打开本地存储（第 9 步：USE_NEW_STORE 开时先把旧 SharedPreferences 导入 Room / DataStore，只读不删）
         val storage = get<StorageBackend>()
 
-        // 先只配置构建时 Key，不触碰高德 SDK；隐私说明同意后由 MainActivity 初始化。
-        get<MapSdkInitializer>().configureBuiltInKeys(BuildConfig.AMAP_ANDROID_KEY, BuildConfig.AMAP_WEB_KEY)
+        // 只配 Web 服务 Key：本构建不含高德 Android SDK，Android 槽恒空（隐私说明同意后仍由 MainActivity 走一遍初始化）。
+        get<MapSdkInitializer>().configureBuiltInKeys("", BuildConfig.AMAP_WEB_KEY)
         if (storage.amapKeys.privacyConsent.value == true) {
             runCatching { get<MapSdkInitializer>().initialize(storage.amapKeys.androidKey.value) }
         }

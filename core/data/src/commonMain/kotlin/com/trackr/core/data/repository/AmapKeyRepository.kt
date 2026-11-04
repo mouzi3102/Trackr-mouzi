@@ -45,7 +45,7 @@ interface AmapKeyRepository {
 
 /**
  * 构建时注入的 Key 和平台能力。
- * @param androidKey Android 是 `BuildConfig.AMAP_ANDROID_KEY`
+ * @param androidKey Android 平台 Key：不含高德 SDK 的精简构建里恒为空串（这一槽只是给以后接地图留的结构）
  * @param webKey Android 是 `BuildConfig.AMAP_WEB_KEY`；iOS 构建时注入（第 35 步）
  * @param hasAndroidMapSdk 平台有没有高德 Android 地图 SDK。iOS 为 false：Android 槽不用，[AmapKeyRepository.canShowMap] 恒为 false（第 38 步之前）
  */
