@@ -3,6 +3,7 @@ package com.trackr.ui.screens.routeplan
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,10 +32,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
@@ -47,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import com.trackr.core.designsystem.resources.Res
 import com.trackr.core.designsystem.resources.ic_bus
 import com.trackr.core.designsystem.resources.ic_close
+import com.trackr.core.designsystem.resources.ic_my_location
 import com.trackr.core.designsystem.resources.ic_search
 import com.trackr.core.designsystem.resources.ic_swap_vertical
 import com.trackr.core.designsystem.theme.extendedColors
@@ -56,6 +63,9 @@ import com.trackr.feature.route.resources.route_plan_clear_from
 import com.trackr.feature.route.resources.route_plan_clear_to
 import com.trackr.feature.route.resources.route_plan_from_hint
 import com.trackr.feature.route.resources.route_plan_go
+import com.trackr.feature.route.resources.route_plan_my_location
+import com.trackr.feature.route.resources.route_plan_my_location_from
+import com.trackr.feature.route.resources.route_plan_my_location_to
 import com.trackr.feature.route.resources.route_plan_swap
 import com.trackr.feature.route.resources.route_plan_to_hint
 import org.jetbrains.compose.resources.stringResource
@@ -71,6 +81,23 @@ internal fun SearchConsole(
     onEvent: (RoutePlanEvent) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 光标落在哪个框。空着的时候弹一条「我的位置」选项，两个框一样
+    var originFocused by remember { mutableStateOf(false) }
+    var destFocused by remember { mutableStateOf(false) }
+    val focusedField = when {
+        destFocused -> TipsField.Dest
+        originFocused -> TipsField.Origin
+        else -> null
+    }
+    val myLocationField = focusedField?.takeIf { field ->
+        when (field) {
+            TipsField.Origin -> originText.isBlank()
+            TipsField.Dest -> destText.isBlank()
+        }
+    }
+    // 已经弹出「我的位置」时不再叠别的提示；提示只给正在编辑的那个框，避免旧结果串台
+    val visibleTips = if (myLocationField == null && tipsField == focusedField) tips else emptyList()
+
     Column(modifier = modifier) {
         Card(
             modifier = Modifier
@@ -79,8 +106,9 @@ internal fun SearchConsole(
                 .testTag("top_search_console"),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
-            )
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(
                 modifier = Modifier
@@ -101,7 +129,10 @@ internal fun SearchConsole(
                         imeAction = ImeAction.Default,
                         onValueChange = { onEvent(RoutePlanEvent.OriginChanged(it)) },
                         onClear = { onEvent(RoutePlanEvent.ClearOrigin) },
-                        onSearch = {}
+                        onSearch = {},
+                        onFocusChanged = { originFocused = it },
+                        // 选中的「我的位置」用主色写，让用户看见它真的在生效
+                        highlightValue = stringResource(RouteRes.string.route_plan_my_location)
                     )
 
                     Box(
@@ -121,12 +152,15 @@ internal fun SearchConsole(
                         imeAction = ImeAction.Search,
                         onValueChange = { onEvent(RoutePlanEvent.DestChanged(it)) },
                         onClear = { onEvent(RoutePlanEvent.ClearDest) },
-                        onSearch = { onEvent(RoutePlanEvent.Submit) }
+                        onSearch = { onEvent(RoutePlanEvent.Submit) },
+                        onFocusChanged = { destFocused = it },
+                        highlightValue = stringResource(RouteRes.string.route_plan_my_location)
                     )
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
 
+                // 互换 / 规划上下叠放，和两行输入对齐（7d1cc92 压成横排后用户要求恢复原高度）
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -167,12 +201,14 @@ internal fun SearchConsole(
         }
 
         AnimatedVisibility(
-            visible = tipsField != null && tips.isNotEmpty(),
+            visible = myLocationField != null || visibleTips.isNotEmpty(),
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             TipsCard(
-                tips = tips,
+                myLocationField = myLocationField,
+                tips = visibleTips,
+                onPickMyLocation = { field -> onEvent(RoutePlanEvent.PickMyLocation(field)) },
                 onPick = { tip -> tipsField?.let { onEvent(RoutePlanEvent.PickTip(it, tip)) } }
             )
         }
@@ -189,8 +225,12 @@ private fun PlaceInputRow(
     imeAction: ImeAction,
     onValueChange: (String) -> Unit,
     onClear: () -> Unit,
-    onSearch: () -> Unit
+    onSearch: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
+    /** 这段文字用主色写（选中的「我的位置」）；其他文字用常规色 */
+    highlightValue: String? = null
 ) {
+    val primary = MaterialTheme.colorScheme.primary
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -206,13 +246,18 @@ private fun PlaceInputRow(
             onValueChange = onValueChange,
             modifier = Modifier
                 .weight(1f)
+                .onFocusChanged { onFocusChanged(it.isFocused) }
                 .testTag(inputTag),
             keyboardOptions = KeyboardOptions(imeAction = imeAction),
             keyboardActions = KeyboardActions(onSearch = { onSearch() }),
             textStyle = TextStyle(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (highlightValue != null && value == highlightValue) {
+                    primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             ),
             singleLine = true,
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -221,7 +266,7 @@ private fun PlaceInputRow(
                     Text(
                         text = placeholder,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.outline
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
                 }
@@ -241,33 +286,87 @@ private fun PlaceInputRow(
     }
 }
 
-/** 输入提示下拉卡片 */
+/** 空输入框点进去时弹出的「我的位置」选项（起点 / 终点两个框共用） */
+@Composable
+private fun MyLocationRow(field: TipsField, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag("tip_my_location")
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = vectorResource(Res.drawable.ic_my_location),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(RouteRes.string.route_plan_my_location),
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = stringResource(
+                    when (field) {
+                        TipsField.Origin -> RouteRes.string.route_plan_my_location_from
+                        TipsField.Dest -> RouteRes.string.route_plan_my_location_to
+                    }
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
+/** 输入提示下拉卡片：空输入框时上面一条「我的位置」，下面是高德输入提示 */
 @Composable
 private fun TipsCard(
+    myLocationField: TipsField?,
     tips: List<AmapTipItem>,
+    onPickMyLocation: (TipsField) -> Unit,
     onPick: (AmapTipItem) -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 6.dp)
-            .heightIn(max = 240.dp)
+            .heightIn(max = 280.dp)
             .shadow(elevation = 6.dp, shape = MaterialTheme.shapes.medium)
             .testTag("route_plan_tips"),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(vertical = 4.dp)
-        ) {
-            // 高德提示可能重名，key 带上序号保证唯一
-            itemsIndexed(
-                items = tips,
-                key = { index, tip -> "$index|${tip.name}|${tip.location}" },
-                contentType = { _, _ -> "tip" }
-            ) { _, tip ->
-                TipRow(tip = tip, onClick = { onPick(tip) })
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (myLocationField != null) {
+                MyLocationRow(field = myLocationField, onClick = { onPickMyLocation(myLocationField) })
+            }
+            if (tips.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    // 高德提示可能重名，key 带上序号保证唯一
+                    itemsIndexed(
+                        items = tips,
+                        key = { index, tip -> "$index|${tip.name}|${tip.location}" },
+                        contentType = { _, _ -> "tip" }
+                    ) { _, tip ->
+                        TipRow(tip = tip, onClick = { onPick(tip) })
+                    }
+                }
             }
         }
     }

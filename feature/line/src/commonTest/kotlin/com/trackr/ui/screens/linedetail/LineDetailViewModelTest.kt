@@ -11,6 +11,7 @@ import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.LiveBus
+import com.trackr.core.model.RailMode
 import com.trackr.core.model.TrackingTarget
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitCodeProvider
@@ -29,7 +30,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -175,6 +179,18 @@ class LineDetailViewModelTest {
             announcer = announcer,
             enableAutoPolling = false
         )
+    }
+
+    @Test
+    fun railMode_followsGlobalSetting() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+        assertEquals(RailMode.Horizontal, viewModel.uiState.value.railMode)
+
+        fakeRepository.settings.setRailMode(RailMode.Vertical)
+        testScheduler.runCurrent()
+
+        assertEquals(RailMode.Vertical, viewModel.uiState.value.railMode)
     }
 
     // ---------- 读给我听（第 33 步） ----------
@@ -330,11 +346,31 @@ class LineDetailViewModelTest {
         val viewModel = createViewModel()
         testScheduler.runCurrent()
 
+        viewModel.openBusList()
         viewModel.selectBusToFollow(buses.first())
         assertEquals("b1", viewModel.uiState.value.followedBusId)
         assertEquals(PanelMode.BUS_FOLLOW, viewModel.uiState.value.panelMode)
 
-        viewModel.backToStationCard()
+        // 从车辆列表进来的跟随：返回先回列表，再回站点卡，最后交给页面退出
+        assertTrue(viewModel.backFromPanel())
+        assertNull(viewModel.uiState.value.followedBusId)
+        assertEquals(PanelMode.BUS_LIST, viewModel.uiState.value.panelMode)
+
+        assertTrue(viewModel.backFromPanel())
+        assertEquals(PanelMode.STATION_CARD, viewModel.uiState.value.panelMode)
+        assertFalse(viewModel.backFromPanel())
+    }
+
+    @Test
+    fun testFollowBus_fromRouteRail_backReturnsToStationCard() = runTest(main.dispatcher) {
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+
+        // 走向条上直接点车：没有经过车辆列表，返回就回站点卡
+        viewModel.selectBusToFollow(buses.first())
+        assertEquals(PanelMode.BUS_FOLLOW, viewModel.uiState.value.panelMode)
+
+        assertTrue(viewModel.backFromPanel())
         assertNull(viewModel.uiState.value.followedBusId)
         assertEquals(PanelMode.STATION_CARD, viewModel.uiState.value.panelMode)
     }
@@ -480,6 +516,48 @@ class LineDetailViewModelTest {
         assertEquals("21:40", viewModel.uiState.value.live?.fallbackNextDeparture)
     }
 
+    // 第二次进同一条线路时，实时数据可能一次都不挂起（命中缓存）：请求会在构造函数里同步跑完。
+    // 以前 timetableCache 声明在 init 之后，这里读到的字段还是 null，点几次线路就崩（真机崩溃栈 NPE at :466）。
+    @Test
+    fun construct_whenFirstLoadCompletesSynchronously_doesNotCrashOnTimetableCache() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        try {
+            fakeRepository.lineDetailResult = Result.success(
+                BusLineDetail(
+                    line = forwardDirection,
+                    reverseDirection = reverseDirection,
+                    stops = stops,
+                    // 车都过了候车站（站序 1），实时接口也没给下一班：会去读时刻表缓存
+                    buses = buses,
+                    targetOrder = 1,
+                    nextDepartureFromStart = null
+                )
+            )
+            fakeRepository.timetableResult = Result.success(
+                LineTimetable(lineId = "line_001", lineName = "49路", todayDepartures = listOf("21:00", "21:40"))
+            )
+
+            val viewModel = LineDetailViewModel(
+                cityId = "034",
+                initialLineId = "line_001",
+                initialTargetOrder = 1,
+                settings = fakeRepository.settings,
+                favorites = fakeRepository.favoritesRepo,
+                realtime = fakeRepository.realtime,
+                reminderRepository = FakeScheduledReminderRepository(),
+                trackingRepository = trackingRepository,
+                trackingController = trackingController,
+                enableAutoPolling = false,
+                nowHHmm = { "21:28" }
+            )
+
+            // 读时刻表这一步跑完了：构造函数里的请求没有因为字段还没初始化而中断
+            assertEquals("21:40", viewModel.uiState.value.live?.fallbackNextDeparture)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test
     fun testUpcomingBus_doesNotUseTimetableFallback() = runTest(main.dispatcher) {
         fakeRepository.timetableResult = Result.success(
@@ -554,6 +632,80 @@ class LineDetailViewModelTest {
         // 首车在第 2 站 → 默认候车站为第 3 站；只补一次精确请求
         assertEquals(listOf<Int?>(null, 3), repo.lineDetailTargetOrders)
         assertEquals(3, viewModel.uiState.value.selectedStop?.order)
+    }
+
+    @Test
+    fun testInitialLoad_leadBusAtTerminal_fallsBackToFirstStop() = runTest(main.dispatcher) {
+        // issue #9：首车已到终点站时，后面没有站，默认候车站回到起点，不能选终点站
+        fakeRepository.lineDetailResult = Result.success(
+            BusLineDetail(
+                line = forwardDirection,
+                reverseDirection = reverseDirection,
+                stops = stops,
+                buses = listOf(
+                    LiveBus(busId = "b3", plateOrFleetNo = "沪A9999", order = 3, etaSeconds = 60, isArrived = true)
+                ),
+                targetOrder = 3
+            )
+        )
+        val repo = CountingLineRepository(fakeRepository.realtime)
+        val viewModel = createViewModel(realtime = repo)
+        testScheduler.runCurrent()
+
+        assertEquals(1, viewModel.uiState.value.selectedStop?.order)
+        // 默认站回到起点后，按起点站补一次精确请求
+        assertEquals(listOf<Int?>(null, 1), repo.lineDetailTargetOrders)
+    }
+
+    @Test
+    fun testInitialLoad_explicitTerminalTarget_keepsTerminalStop() = runTest(main.dispatcher) {
+        // 用户明确打开终点站的线路详情时，仍保留终点站
+        val repo = CountingLineRepository(fakeRepository.realtime)
+        val viewModel = createViewModel(targetOrder = 3, realtime = repo)
+        testScheduler.runCurrent()
+
+        assertEquals(3, viewModel.uiState.value.selectedStop?.order)
+        assertEquals(listOf<Int?>(3), repo.lineDetailTargetOrders)
+    }
+
+    @Test
+    fun testInitialLoad_tappedStopWinsOverLeadBusAtTerminal() = runTest(main.dispatcher) {
+        // 首车已在终点站，但用户是从第 2 站点进来的：默认候车站仍是第 2 站，不按车猜
+        fakeRepository.lineDetailResult = Result.success(
+            BusLineDetail(
+                line = forwardDirection,
+                reverseDirection = reverseDirection,
+                stops = stops,
+                buses = listOf(
+                    LiveBus(busId = "b3", plateOrFleetNo = "沪A9999", order = 3, etaSeconds = 60, isArrived = true)
+                ),
+                targetOrder = 2
+            )
+        )
+        val repo = CountingLineRepository(fakeRepository.realtime)
+        val viewModel = createViewModel(targetOrder = 2, realtime = repo)
+        testScheduler.runCurrent()
+
+        assertEquals(2, viewModel.uiState.value.selectedStop?.order)
+        assertEquals(listOf<Int?>(2), repo.lineDetailTargetOrders)
+    }
+
+    @Test
+    fun entryStopOrder_exposedWhenOpenedFromStation() = runTest(main.dispatcher) {
+        // 从某个站点点进来：页面要拿这个站序把走向条直接滚到那一站
+        val viewModel = createViewModel(targetOrder = 2)
+        testScheduler.runCurrent()
+
+        assertEquals(2, viewModel.uiState.value.entryStopOrder)
+    }
+
+    @Test
+    fun entryStopOrder_nullWhenOpenedWithoutStation() = runTest(main.dispatcher) {
+        // 搜索 / 收藏这类没有带站序的入口：页面保持从顶部开始
+        val viewModel = createViewModel()
+        testScheduler.runCurrent()
+
+        assertNull(viewModel.uiState.value.entryStopOrder)
     }
 
     @Test

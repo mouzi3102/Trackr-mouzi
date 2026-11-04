@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -18,22 +19,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.trackr.ui.components.message.HostMessage
 import com.trackr.ui.components.message.UserMessageHost
@@ -50,6 +56,8 @@ import com.trackr.feature.bus.resources.bus_home_switch_city
 import com.trackr.ui.components.transitcode.TransitCodeChooserSheet
 import com.trackr.ui.components.transitcode.TransitCodeFab
 import com.trackr.ui.components.transitcode.rememberTransitCodeFabState
+import com.trackr.ui.bottombar.LocalBottomBarCollapseOffset
+import kotlin.math.roundToInt
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
 
@@ -80,22 +88,31 @@ fun BusHomeScreen(
     modifier: Modifier = Modifier
 ) {
     val fabState = rememberTransitCodeFabState()
+    // 底栏（页签）收起时，「乘车码」跟着一起往下走；底栏是根布局画的，这里只读它滑下去的距离
+    val bottomBarCollapseOffset = LocalBottomBarCollapseOffset.current
+    // 标题栏和「我的」页一样，用 Material3 原生的滚动折叠：往下滑收成一条，往上滑展开
+    val topBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        modifier = modifier.nestedScroll(fabState.nestedScrollConnection),
+        modifier = modifier
+            .nestedScroll(fabState.nestedScrollConnection)
+            .nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             BusHomeTopBar(
                 cityName = state.currentCity.cityName,
-                onCityClick = { onEvent(BusHomeEvent.OpenCityPicker) }
+                onCityClick = { onEvent(BusHomeEvent.OpenCityPicker) },
+                scrollBehavior = topBarScrollBehavior
             )
         },
         floatingActionButton = {
             TransitCodeFab(
                 expanded = fabState.expanded,
                 onClick = { onEvent(BusHomeEvent.TransitCodeClicked) },
-                // 底栏（页签）盖在页面上面，按钮要让开它
-                modifier = Modifier.padding(bottom = BOTTOM_BAR_HEIGHT)
+                // 底栏（页签）盖在页面上面，按钮要让开它；底栏收起时再把它挪到系统导航栏上方
+                modifier = Modifier
+                    .padding(bottom = BOTTOM_BAR_HEIGHT)
+                    .offset { IntOffset(0, bottomBarCollapseOffset().roundToInt()) }
             )
         },
         // 一次性消息：一条一条显示，显示完回报
@@ -192,30 +209,40 @@ fun BusHomeScreen(
     }
 }
 
-/** 顶栏：标题就是城市名（v3），点它换城市 */
+/** 顶栏：大标题是城市名（v3），点它换城市；和「我的」页一样滚动收起成一条 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BusHomeTopBar(cityName: String, onCityClick: () -> Unit) {
-    TopAppBar(
+private fun BusHomeTopBar(
+    cityName: String,
+    onCityClick: () -> Unit,
+    scrollBehavior: TopAppBarScrollBehavior
+) {
+    LargeTopAppBar(
         title = {
             Surface(
                 onClick = onCityClick,
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface,
+                // 透明底：展开 / 收起时都让标题栏自己的底色透出来，只保留点击涟漪
+                color = Color.Transparent,
                 modifier = Modifier.testTag(BusHomeTags.CITY_TITLE)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(vertical = 4.dp)
                 ) {
-                    Text(text = cityName, style = MaterialTheme.typography.titleLarge)
+                    Text(text = cityName, fontWeight = FontWeight.Bold)
                     Icon(
                         imageVector = vectorResource(Res.drawable.ic_arrow_drop_down),
                         contentDescription = stringResource(BusRes.string.bus_home_switch_city)
                     )
                 }
             }
-        }
+        },
+        scrollBehavior = scrollBehavior,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     )
 }
 

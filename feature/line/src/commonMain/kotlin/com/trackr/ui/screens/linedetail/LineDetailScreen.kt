@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,8 +26,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,17 +49,25 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.trackr.core.designsystem.component.DataSourceBadge
 import com.trackr.core.designsystem.component.DataSourceBadgeStyle
 import com.trackr.core.designsystem.component.FullscreenErrorView
@@ -80,6 +92,7 @@ import com.trackr.core.model.BusStop
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.LineOperatingState
 import com.trackr.core.model.LiveBus
+import com.trackr.core.model.RailMode
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.feature.line.resources.Res as LineRes
 import com.trackr.feature.line.resources.line_detail_error
@@ -93,8 +106,11 @@ import com.trackr.feature.line.resources.line_detail_timetable
 import com.trackr.feature.line.resources.line_detail_track_this
 import com.trackr.ui.components.message.HostMessage
 import com.trackr.ui.components.message.UserMessageHost
+import com.trackr.ui.components.HorizontalRailColumnWidth
+import com.trackr.ui.components.HorizontalRouteRail
 import com.trackr.ui.components.ScheduledReminderDialog
 import com.trackr.ui.components.TransitCodeBottomSheet
+import com.trackr.ui.components.horizontalRailCardHeight
 import com.trackr.ui.components.routeRailItemIndex
 import com.trackr.ui.components.routeRailItems
 import com.trackr.ui.components.timetable.TimetableBottomSheet
@@ -102,6 +118,7 @@ import com.trackr.ui.screens.linedetail.components.BusFollowContent
 import com.trackr.ui.screens.linedetail.components.BusListContent
 import com.trackr.ui.screens.linedetail.components.FavoriteGroupPickerSheet
 import com.trackr.ui.screens.linedetail.components.StationArrivalContent
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.vectorResource
@@ -114,7 +131,8 @@ sealed interface LineDetailEvent {
     data class SelectStop(val stop: BusStop) : LineDetailEvent
     data class FollowBus(val bus: LiveBus) : LineDetailEvent
     data object OpenBusList : LineDetailEvent
-    data object BackToStationCard : LineDetailEvent
+    /** 卡片内的返回：退一级（跟随 → 车辆列表 / 站点卡，车辆列表 → 站点卡）；顶栏返回也先走它 */
+    data object BackFromPanel : LineDetailEvent
     data object SwitchDirection : LineDetailEvent
     data object ToggleFavorite : LineDetailEvent
     data object OpenGroupPicker : LineDetailEvent
@@ -141,12 +159,9 @@ sealed interface LineDetailEvent {
     data object ReadAloud : LineDetailEvent
 }
 
-/** 走向条之前的列表项数（方向头、主卡；有错误条时多一项） */
-private fun railStartIndex(hasError: Boolean): Int = if (hasError) 3 else 2
-
 /**
  * 线路详情（v3）：顶栏「返回 · 线路名 · 时钟 · ☆」；方向「始发 → 终点」+「换向」、运营信息 +「时刻表 ›」；
- * 主卡；竖向走向条；底栏「主按钮 + 乘车码」；下拉刷新；收藏等一次性提示走提示条。
+ * 主卡固定在顶部；竖向走向条单独滚动；底栏「主按钮 + 乘车码」；下拉刷新；收藏等一次性提示走提示条。
  *
  * 底栏自己让开系统导航栏，列表底部留白 = Scaffold 的 innerPadding（含底栏和导航栏），三键导航下不重叠（issue #2）。
  */
@@ -159,9 +174,58 @@ fun LineDetailScreen(
 ) {
     val currentOnEvent by rememberUpdatedState(onEvent)
     val listState = rememberLazyListState()
+    val stripScrollState = rememberScrollState()
+    val pageScrollState = rememberScrollState()
+    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
     val static = state.static
+
+    // 走向条样式是「我的」里的全局设置，线路页不提供切换入口
+    val isHorizontalRail = state.railMode == RailMode.Horizontal
+    // 从某个站点点进来：走向条直接跳到那一站，只跳一次。主卡固定在顶部，不会跟着跳走。
+    // 没带站序（搜索、收藏等）就保持从顶部开始；换向、选站、轮询都不会再跳。
+    var didJumpToEntryStop by rememberSaveable { mutableStateOf(false) }
+    // 主卡可以收起成一行，把高度让给走向条；收起状态跟着页面保存
+    var cardCollapsed by rememberSaveable { mutableStateOf(false) }
+    val railCardHeight = horizontalRailCardHeight(static?.stops.orEmpty())
+
+    LaunchedEffect(static?.stops, state.entryStopOrder) {
+        val stops = static?.stops ?: return@LaunchedEffect
+        val order = state.entryStopOrder ?: return@LaunchedEffect
+        if (didJumpToEntryStop || stops.none { it.order == order }) return@LaunchedEffect
+        didJumpToEntryStop = true
+        val index = routeRailItemIndex(stops, order)
+        val target = (index - 2).coerceAtLeast(0)
+        if (isHorizontalRail) {
+            stripScrollState.scrollTo(with(density) { (HorizontalRailColumnWidth * target).roundToPx() })
+        } else {
+            listState.scrollToItem(target)
+        }
+    }
+
+    // 在「我的」改了走向条样式再回来：把新视图滚到当前候车站；换向、选站、轮询都不滚
+    var previousRailMode by remember { mutableStateOf(state.railMode) }
+    LaunchedEffect(state.railMode) {
+        if (previousRailMode == state.railMode) return@LaunchedEffect
+        previousRailMode = state.railMode
+        val stops = static?.stops ?: return@LaunchedEffect
+        val order = state.selectedStop?.order ?: return@LaunchedEffect
+        val index = routeRailItemIndex(stops, order)
+        val target = (index - 2).coerceAtLeast(0)
+        if (isHorizontalRail) {
+            stripScrollState.animateScrollTo(with(density) { (HorizontalRailColumnWidth * target).roundToPx() })
+        } else {
+            listState.animateScrollToItem(target)
+        }
+    }
+
+    // 车辆列表 / 单车跟随里，系统返回 = 退一级，不离开线路详情
+    NavigationBackHandler(
+        state = rememberNavigationEventState(NavigationEventInfo.None),
+        isBackEnabled = state.panelMode != PanelMode.STATION_CARD,
+        onBackCompleted = { onEvent(LineDetailEvent.BackFromPanel) }
+    )
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -226,51 +290,98 @@ fun LineDetailScreen(
                     .fillMaxSize()
                     .padding(top = innerPadding.calculateTopPadding())
             ) {
-                val live = state.live
-                val busesByOrder = remember(live?.buses) { live?.buses.orEmpty().groupBy { it.order } }
-                val hasError = state.errorMessage != null
-                LazyColumn(
-                    state = listState,
-                    // 底部 = 底栏 + 系统导航栏（Scaffold 已算进 innerPadding），不用 consumeWindowInsets，避免被吃成 0（issue #2）
-                    contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding() + 16.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    item(key = "direction", contentType = "direction") {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val live = state.live
+                    val busesByOrder = remember(live?.buses) { live?.buses.orEmpty().groupBy { it.order } }
+                    val hasError = state.errorMessage != null
+                    // 主卡最多占六成；横排时再给横条和底栏让位，保证横线整个露出来
+                    val cardMaxHeight = if (isHorizontalRail) {
+                        val reserved = 120.dp + innerPadding.calculateBottomPadding() +
+                            if (hasError) 48.dp else 0.dp
+                        (maxHeight - reserved - railCardHeight - 16.dp)
+                            .coerceAtLeast(64.dp)
+                            .coerceAtMost(maxHeight * 0.6f)
+                    } else {
+                        maxHeight * 0.6f
+                    }
+                    // 横排没有可上下滚的列表；加一层纵向滚动，下拉刷新才收得到手势
+                    val contentModifier = if (isHorizontalRail) {
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(pageScrollState)
+                            .padding(bottom = innerPadding.calculateBottomPadding())
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                    Column(modifier = contentModifier) {
                         DirectionHeader(
                             static = static,
                             onSwitchDirection = { onEvent(LineDetailEvent.SwitchDirection) },
                             onOpenTimetable = { onEvent(LineDetailEvent.OpenTimetable) }
                         )
-                    }
-                    if (hasError) {
-                        item(key = "error", contentType = "error") {
+                        if (hasError) {
                             ErrorBanner(
                                 text = state.errorMessage.orEmpty(),
                                 onRetry = { onEvent(LineDetailEvent.Refresh(fromPull = false)) }
                             )
                         }
-                    }
-                    item(key = "hero", contentType = "hero") {
+                        // 主卡固定在顶部，不跟走向条一起滚：看卡片和看当前站可以同时
                         HeroCard(
                             state = state,
                             static = static,
                             onEvent = onEvent,
                             onPickStop = {
                                 val order = state.selectedStop?.order ?: return@HeroCard
-                                val index = railStartIndex(hasError) + routeRailItemIndex(static.stops, order)
-                                scope.launch { listState.animateScrollToItem((index - 2).coerceAtLeast(0)) }
-                            }
+                                val index = routeRailItemIndex(static.stops, order)
+                                val target = (index - 2).coerceAtLeast(0)
+                                scope.launch {
+                                    if (isHorizontalRail) {
+                                        stripScrollState.animateScrollTo(
+                                            with(density) { (HorizontalRailColumnWidth * target).roundToPx() }
+                                        )
+                                    } else {
+                                        listState.animateScrollToItem(target)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.heightIn(max = cardMaxHeight),
+                            collapsed = cardCollapsed,
+                            onToggleCollapsed = { cardCollapsed = !cardCollapsed }
                         )
+                        if (isHorizontalRail) {
+                            // 横排只有一条横线，没有竖排站点列表；卡片就贴在主卡下面，剩下的留给页面底色
+                            HorizontalRouteRail(
+                                stops = static.stops,
+                                buses = live?.buses.orEmpty(),
+                                selectedStop = state.selectedStop,
+                                selectedBusId = state.followedBusId,
+                                scrollState = stripScrollState,
+                                onSelectStop = { onEvent(LineDetailEvent.SelectStop(it)) },
+                                onSelectBus = { onEvent(LineDetailEvent.FollowBus(it)) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        } else {
+                            LazyColumn(
+                                state = listState,
+                                // 底部 = 底栏 + 系统导航栏（Scaffold 已算进 innerPadding），不用 consumeWindowInsets，避免被吃成 0（issue #2）
+                                contentPadding = PaddingValues(top = 4.dp, bottom = innerPadding.calculateBottomPadding() + 16.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                routeRailItems(
+                                    stops = static.stops,
+                                    busesByOrder = busesByOrder,
+                                    selectedOrder = state.selectedStop?.order,
+                                    selectedBusId = state.followedBusId,
+                                    onSelectStop = { onEvent(LineDetailEvent.SelectStop(it)) },
+                                    onSelectBus = { onEvent(LineDetailEvent.FollowBus(it)) }
+                                )
+                            }
+                        }
                     }
-                    item(key = "rail_gap", contentType = "gap") { Spacer(modifier = Modifier.height(12.dp)) }
-                    routeRailItems(
-                        stops = static.stops,
-                        busesByOrder = busesByOrder,
-                        selectedOrder = state.selectedStop?.order,
-                        selectedBusId = state.followedBusId,
-                        onSelectStop = { onEvent(LineDetailEvent.SelectStop(it)) },
-                        onSelectBus = { onEvent(LineDetailEvent.FollowBus(it)) }
-                    )
                 }
             }
         }
@@ -466,24 +577,28 @@ private fun ErrorBanner(text: String, onRetry: () -> Unit) {
     }
 }
 
-/** 主卡：到站 / 全部车辆 / 单车跟随 三种内容切换 */
+/** 主卡：到站 / 全部车辆 / 单车跟随 三种内容切换；固定在页面顶部，内容超过限高时卡内自己滚 */
 @Composable
 private fun HeroCard(
     state: LineDetailUiState,
     static: LineStatic,
     onEvent: (LineDetailEvent) -> Unit,
-    onPickStop: () -> Unit
+    onPickStop: () -> Unit,
+    modifier: Modifier = Modifier,
+    collapsed: Boolean = false,
+    onToggleCollapsed: (() -> Unit)? = null
 ) {
     Card(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.busColors.stationCardContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
+            .then(modifier)
     ) {
         AnimatedContent(
-            targetState = state.panelMode,
+            targetState = state.panelMode to collapsed,
             transitionSpec = {
                 fadeIn(animationSpec = tween(durationMillis = 200, delayMillis = 60)) togetherWith
                     fadeOut(animationSpec = tween(durationMillis = 140)) using
@@ -499,7 +614,8 @@ private fun HeroCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
-        ) { mode ->
+                .verticalScroll(rememberScrollState())
+        ) { (mode, isCollapsed) ->
             when (mode) {
                 PanelMode.STATION_CARD -> StationArrivalContent(
                     static = static,
@@ -507,13 +623,15 @@ private fun HeroCard(
                     selectedStop = state.selectedStop,
                     isTrackingActive = state.isTrackingThisStop,
                     onPickStop = onPickStop,
-                    onOpenBusList = { onEvent(LineDetailEvent.OpenBusList) }
+                    onOpenBusList = { onEvent(LineDetailEvent.OpenBusList) },
+                    collapsed = isCollapsed,
+                    onToggleCollapsed = onToggleCollapsed
                 )
 
                 PanelMode.BUS_LIST -> BusListContent(
                     lineDetail = rememberLineDetail(static, state.live),
                     selectedStop = state.selectedStop,
-                    onBack = { onEvent(LineDetailEvent.BackToStationCard) },
+                    onBack = { onEvent(LineDetailEvent.BackFromPanel) },
                     onSelectBus = { onEvent(LineDetailEvent.FollowBus(it)) }
                 )
 
@@ -522,7 +640,7 @@ private fun HeroCard(
                     BusFollowContent(
                         lineDetail = detail,
                         followedBus = detail.buses.find { it.busId == state.followedBusId },
-                        onBack = { onEvent(LineDetailEvent.BackToStationCard) }
+                        onBack = { onEvent(LineDetailEvent.BackFromPanel) }
                     )
                 }
             }

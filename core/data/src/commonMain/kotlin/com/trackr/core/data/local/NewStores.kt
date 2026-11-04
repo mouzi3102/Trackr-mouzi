@@ -43,6 +43,7 @@ class RoomDataStoreTransitStore(
             showOnLockScreen = prefs[SettingsKeys.SHOW_ON_LOCK_SCREEN],
             alertThresholdStops = prefs[SettingsKeys.ALERT_THRESHOLD_STOPS],
             uiMode = prefs[SettingsKeys.UI_MODE],
+            railMode = prefs[SettingsKeys.RAIL_MODE],
             fontScalePromptDismissed = prefs[SettingsKeys.FONT_SCALE_PROMPT_DISMISSED],
             searchHistory = db.searchHistory().getAll().map { it.query },
             citySearchHistory = prefs[SettingsKeys.CITY_SEARCH_HISTORY_JSON]?.let { decodeStringList(it) } ?: emptyList()
@@ -79,6 +80,10 @@ class RoomDataStoreTransitStore(
 
     override suspend fun saveUiMode(name: String) {
         settings.edit { it[SettingsKeys.UI_MODE] = name }
+    }
+
+    override suspend fun saveRailMode(name: String) {
+        settings.edit { it[SettingsKeys.RAIL_MODE] = name }
     }
 
     override suspend fun saveFontScalePromptDismissed(dismissed: Boolean) {

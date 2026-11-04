@@ -39,7 +39,7 @@ android {
     defaultConfig {
         applicationId = "com.github.u5151561.trackr"
         versionCode = 8
-        versionName = "0.0.8"
+        versionName = "0.1.4"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
         // 第 9 步存储开关 USE_NEW_STORE 的默认值（true = Room + DataStore）；运行时可用 files/store_switch 覆盖，见 StoreSwitch
@@ -99,6 +99,17 @@ android {
             if (releaseSigning.storeFile?.exists() == true) {
                 signingConfig = releaseSigning
             }
+        }
+    }
+
+    // 两个 ABI 各出一个包，不把 56 MB 原生库塞进同一个 APK：arm64 约 51 MB、armv7 约 40 MB。
+    // 产物在 build/outputs/apk/release/androidApp-<abi>-release.apk。
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
         }
     }
 

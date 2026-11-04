@@ -50,7 +50,7 @@ data class StopDetailUiState(
  * @param key 列表 key，也是选线的 key（同一站台内唯一）
  * @param hours 运营时间「06:30–22:30」；没有为空串
  * @param arrival 到站文字（大字 + 小字 + 颜色）
- * @param selectable 能不能勾进一起等 / 能不能点开线路页（有 lineId 和站序）
+ * @param selectable 能不能勾进一起等（要站序）；点开线路页只看 lineId（掌上公交的站点行不带站序）
  */
 data class StopLineRowUi(
     val key: String,
@@ -127,6 +127,9 @@ sealed interface StopDetailEvent {
 
     /** 进选线模式（「选几条一起等」） */
     data object StartSelecting : StopDetailEvent
+
+    /** 长按一条线：进选线模式，这条能选就顺手勾上 */
+    data class StartSelectingWith(val rowKey: String) : StopDetailEvent
 
     /** 退出选线模式 */
     data object CancelSelecting : StopDetailEvent

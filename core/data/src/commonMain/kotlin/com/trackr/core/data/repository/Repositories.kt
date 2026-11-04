@@ -12,12 +12,14 @@ import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
+import com.trackr.core.model.RailMode
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.core.model.TransitGroup
 import com.trackr.core.model.TransitSearchResult
 import com.trackr.core.model.UiMode
 import com.trackr.core.model.UserFix
+import com.trackr.core.network.remote.mygolbs.MygolbsIds
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -58,6 +60,9 @@ interface SettingsRepository {
     /** 界面模式（重构计划 §8.2）：没存过或认不出按 [UiMode.Standard] */
     val uiMode: StateFlow<UiMode>
 
+    /** 线路详情走向条样式；没存过或认不出按 [RailMode.Horizontal] */
+    val railMode: StateFlow<RailMode>
+
     /** 系统字体放大时的「试试长辈版」提示已经点过（打开或先不用），之后不再提示 */
     val fontScalePromptDismissed: StateFlow<Boolean>
 
@@ -69,6 +74,7 @@ interface SettingsRepository {
     /** 超出 1–3 时夹到范围内 */
     fun setAlertThresholdStops(stops: Int)
     fun setUiMode(mode: UiMode)
+    fun setRailMode(mode: RailMode)
     fun dismissFontScalePrompt()
     suspend fun selectCity(city: TransitCity)
     suspend fun setPreferredTransitCodeProvider(provider: TransitCodeProvider)
@@ -206,7 +212,7 @@ interface RealtimeRepository {
         stationId: String? = null,
         wgsLat: Double? = null,
         wgsLng: Double? = null,
-        source: DataSourceType = if (lineId.startsWith("mg:")) DataSourceType.MYGOLBS else DataSourceType.CHELAILE,
+        source: DataSourceType = if (MygolbsIds.isMygolbsId(lineId)) DataSourceType.MYGOLBS else DataSourceType.CHELAILE,
         lineNameHint: String = "",
         directionHint: Int = 0
     ): Result<BusLineDetail>
@@ -216,6 +222,12 @@ interface RealtimeRepository {
         line: BusLineDirection,
         atTimeHHMM: String? = null
     ): Result<LineTimetable>
+
+    /**
+     * 站点接口是否直接带回车辆明细（含全线站序）。
+     * 掌上公交只给「x 站」文字，一起等要按线路补查。默认 true，Fake 不用改。
+     */
+    fun stopDetailIncludesBuses(source: DataSourceType): Boolean = true
 
     /** 收藏的每条线各查一次线路详情（命中 6 秒合并缓存），返回 收藏 id -> 站点 */
     suspend fun refreshFavoritesRealtime(): Result<Map<String, NearbyStop>>

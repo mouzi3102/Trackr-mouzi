@@ -9,13 +9,17 @@ import com.trackr.core.model.BusLineSummary
 import com.trackr.core.model.BusStop
 import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.LineOperatingState
+import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.LiveBus
 import com.trackr.core.model.NearbyStop
 import com.trackr.core.model.NearbyStopLineStatus
+import com.trackr.core.model.TimetableSegment
 import com.trackr.core.network.json.JSONArray
 import com.trackr.core.network.json.JSONObject
 import com.trackr.core.network.remote.common.BaseTransitApiClient
+import com.trackr.core.network.remote.common.ServiceHours
 import com.trackr.core.network.remote.common.SingleFlightCache
+import com.trackr.core.network.remote.common.TimetableRules
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.setBody
@@ -36,6 +40,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 
@@ -72,6 +78,16 @@ class MygolbsApiClient(
 
         /** 附近站 CMD=105 并发上限 */
         const val MAX_CONCURRENT_STOP_LINES = 4
+
+        /** 发车时刻表 CMD=207 短缓存：同一线路方向 30 秒内复用 */
+        const val TIMETABLE_TTL_MS = 30_000L
+
+        private val BEIJING = TimeZone.of("Asia/Shanghai")
+
+        /** 时刻表拿不到时的固定说法（和改造前一致，避免 UI 文案漂移） */
+        const val TIMETABLE_FALLBACK = "该线路暂不提供首站预测时刻表，请参考运营首末班"
+        const val TIMETABLE_HISTORY_DESC = "本时刻表数据根据历史数据计算得出，仅供参考"
+        const val TIMETABLE_PLANNED_DESC = "本时刻表为计划发车时间，可能临时调整，仅供参考"
 
         private val DEFAULT_CITIES = mapOf(
             "北京市" to "110000",
@@ -124,16 +140,32 @@ class MygolbsApiClient(
      * CMD=103 解析出的线路静态信息
      */
     private data class RouteStatic(
+        val routeId: String,
         val price: String,
         val firstTime: String,
         val lastTime: String,
         val stops: List<BusStop>
     )
 
+    /** CMD=207 解析出的原始时刻表；nextDeparture 在每次调用时按参考时间重算，所以只缓存原料 */
+    private data class TimetableRaw(
+        val departures: List<String>,
+        val segments: List<TimetableSegment>,
+        val nextTime: String?,
+        val special: String
+    )
+
     /** CMD=103 静态数据缓存（12 小时），轮询时只调 CMD=104 */
     private val routeStaticCache = SingleFlightCache<String, RouteStatic>(
         ttlMillis = ROUTE_STATIC_TTL_MS,
         maxEntries = 128,
+        clock = clock
+    )
+
+    /** CMD=207 发车时刻表短缓存（30 秒），避免时刻表弹层和「没车回落」各打一次 */
+    private val timetableCache = SingleFlightCache<String, TimetableRaw>(
+        ttlMillis = TIMETABLE_TTL_MS,
+        maxEntries = 64,
         clock = clock
     )
 
@@ -254,6 +286,7 @@ class MygolbsApiClient(
                 ?: json.optJSONArray("list")
                 ?: JSONArray()
             val lineMap = LinkedHashMap<String, MutableList<BusLineDirection>>()
+            val routeBeanByLine = LinkedHashMap<String, JSONObject>()
             for (i in 0 until dataArr.length()) {
                 val item = dataArr.optJSONObject(i) ?: continue
                 val lineName = item.optString("lineName").ifBlank { item.optString("LINENAME") }
@@ -270,9 +303,14 @@ class MygolbsApiClient(
                 val routeBean = item.optJSONObject("routeBean")
                 val isSubway = routeBean?.optString("routeType") == "3" || lineName.contains("地铁")
                 if (isSubway) continue // 过滤纯地铁线路
+                if (routeBean != null) routeBeanByLine[lineName] = routeBean
 
-                val firstTime = routeBean?.optString("suTime").orEmpty()
-                val lastTime = routeBean?.optString("euTime").orEmpty()
+                // 首末班按方向取：上行用 seutimes，下行用 sedtimes；以前一律写 su/eu，反向会显示错的方向时段
+                val windows = serviceWindows(routeBean, upperOrDown)
+                val firstTime = windows.firstOrNull()?.first
+                    ?: routeBean?.optString(if (upperOrDown == "1") "suTime" else "sdTime").orEmpty()
+                val lastTime = windows.lastOrNull()?.last
+                    ?: routeBean?.optString(if (upperOrDown == "1") "euTime" else "edTime").orEmpty()
                 val dirInt = if (upperOrDown == "1") 0 else 1
 
                 val dir = BusLineDirection(
@@ -297,6 +335,8 @@ class MygolbsApiClient(
                 val effectiveDirs = if (dirs.size == 1) {
                     val d1 = dirs[0]
                     val revUpperOrDown = if (d1.direction == 0) "2" else "1"
+                    // 反向的首末班从同一 routeBean 的另一方向数组取，别直接抄正向
+                    val revWindows = serviceWindows(routeBeanByLine[lineName], revUpperOrDown)
                     val revDir = BusLineDirection(
                         lineId = "mg:$cityCode:$normalizedCity:$lineName:$revUpperOrDown",
                         name = lineName,
@@ -304,8 +344,8 @@ class MygolbsApiClient(
                         direction = if (d1.direction == 0) 1 else 0,
                         startStop = d1.endStop,
                         endStop = d1.startStop,
-                        firstTime = d1.firstTime,
-                        lastTime = d1.lastTime,
+                        firstTime = revWindows.firstOrNull()?.first ?: d1.firstTime,
+                        lastTime = revWindows.lastOrNull()?.last ?: d1.lastTime,
                         price = d1.price,
                         source = DataSourceType.MYGOLBS,
                         mygolbsCityCode = cityCode,
@@ -411,6 +451,41 @@ class MygolbsApiClient(
     }
 
     /**
+     * 掌上公交的方向首末班时段：上行（1）用 `seutimes`，下行（2）用 `sedtimes`。
+     * 这些字段和 CMD=103 的 `firstLast` 一致；没有时才退回 `su/eu` 或 `sd/ed`。
+     */
+    private fun serviceWindows(routeBean: JSONObject?, upperOrDown: String): List<ServiceHours.Window> {
+        val key = if (upperOrDown == "1") "seutimes" else "sedtimes"
+        val arr = routeBean?.optJSONArray(key)
+        val windows = ArrayList<ServiceHours.Window>()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val first = item.optString("first").trim()
+                val last = item.optString("last").trim()
+                if (first.isNotBlank() && last.isNotBlank()) {
+                    windows.add(ServiceHours.Window(first, last))
+                }
+            }
+        }
+        if (windows.isNotEmpty()) return windows
+
+        val fallbackFirst = routeBean
+            ?.optString(if (upperOrDown == "1") "suTime" else "sdTime")
+            .orEmpty()
+            .trim()
+        val fallbackLast = routeBean
+            ?.optString(if (upperOrDown == "1") "euTime" else "edTime")
+            .orEmpty()
+            .trim()
+        return if (fallbackFirst.isNotBlank() && fallbackLast.isNotBlank()) {
+            listOf(ServiceHours.Window(fallbackFirst, fallbackLast))
+        } else {
+            emptyList()
+        }
+    }
+
+    /**
      * 附近站专用：CMD=105 结果 20 秒内复用，并限制并发；失败时不缓存，返回空线路站点
      */
     private suspend fun getStopLinesForNearby(normalizedCity: String, stationName: String): NearbyStop {
@@ -431,6 +506,7 @@ class MygolbsApiClient(
      */
     private suspend fun fetchStopLines(normalizedCity: String, cleanStation: String): NearbyStop {
         val stopId = "mg:$normalizedCity:$cleanStation"
+        val nowHHMM = beijingNowHHMM()
         val json = callApi(
             mapOf(
                 "CMD" to "105",
@@ -455,13 +531,20 @@ class MygolbsApiClient(
             val comments = item.optString("comments")
             val neartext = item.optString("neartext")
             val neartime = item.optString("neartime")
-            val stationOrder = item.optInt("stationOrder", 0)
+            // CMD=105 的 stationOrder 恒为 0；能用的站序在 stationID：它是这条线在本站的序号（0 起，站序 = stationID + 1）。
+            // 莆田、厦门、泉州、玉林都对得上 CMD=103 站表里的 order。
+            val stationOrder = item.optInt("stationOrder", 0).takeIf { it > 0 }
+                ?: item.optString("stationID").toIntOrNull()?.takeIf { it >= 0 }?.plus(1)
+                ?: 0
             val routeBean = item.optJSONObject("routeBean")
             val isSubway = routeBean?.optString("routeType") == "3" || lineName.contains("地铁")
             if (isSubway) continue // 过滤纯地铁线路
 
-            val firstTime = routeBean?.optString("suTime").orEmpty()
-            val lastTime = routeBean?.optString("euTime").orEmpty()
+            val windows = serviceWindows(routeBean, upperOrDown)
+            val firstTime = windows.firstOrNull()?.first
+                ?: routeBean?.optString(if (upperOrDown == "1") "suTime" else "sdTime").orEmpty()
+            val lastTime = windows.lastOrNull()?.last
+                ?: routeBean?.optString(if (upperOrDown == "1") "euTime" else "edTime").orEmpty()
 
             val lineDir = BusLineDirection(
                 lineId = "mg:0:$normalizedCity:$lineName:$upperOrDown",
@@ -481,10 +564,29 @@ class MygolbsApiClient(
                 if (rb.has("hasReal")) rb.optInt("hasReal", 1) else 1
             } ?: 1
 
+            // 上游 neartext 形如「7站 [开往 市检察院]」「1站 [到达 祥和山庄]」：方括号里是终点或下一站，
+            // 首页卡片和站点行放不下，只留「7站」「即将到站」「已到站」「等待发车」（「2站到达」这类也去掉「到达」）。
+            val nearTextClean = neartext
+                .substringBefore('[')
+                .substringBefore('【')
+                .trim()
+                .removeSuffix("到达")
+                .trim()
+            // 上游末班之后仍回「等待发车」；用同一方向的首末班时段判断，和车来了统一成「末班已过」
+            val serviceState = ServiceHours.state(nowHHMM, windows)
             val statusText = when {
                 hasReal == 0 -> "未开通实时"
-                neartext.isNotBlank() -> neartext
-                neartime.isNotBlank() -> "预计 $neartime 到达"
+                nearTextClean.isNotBlank() -> {
+                    if (serviceState == ServiceHours.State.AFTER_LAST &&
+                        (nearTextClean == "等待发车" || nearTextClean == "正在运营中")
+                    ) {
+                        "末班已过"
+                    } else {
+                        nearTextClean
+                    }
+                }
+                neartime.isNotBlank() -> "预计 ${neartime.trim()} 到达"
+                serviceState == ServiceHours.State.AFTER_LAST -> "末班已过"
                 else -> "正在运营中"
             }
 
@@ -675,6 +777,7 @@ class MygolbsApiClient(
             )
         }
         return RouteStatic(
+            routeId = routeJson.optString("routeId"),
             price = price,
             firstTime = firstTime,
             lastTime = lastTime,
@@ -682,26 +785,37 @@ class MygolbsApiClient(
         )
     }
 
+    private fun routeStaticKey(cityCode: String, cityName: String, lineName: String, dirStr: String): String =
+        "$cityCode|$cityName|$lineName|$dirStr"
+
+    /** CMD=103 静态数据：线路详情和时刻表共用同一份 12 小时缓存 */
+    private suspend fun loadRouteStatic(
+        cityCode: String,
+        cityName: String,
+        lineName: String,
+        dirStr: String
+    ): RouteStatic {
+        val key = routeStaticKey(cityCode, cityName, lineName, dirStr)
+        return routeStaticCache.get(key) {
+            fetchRouteStatic(cityCode, cityName, lineName, dirStr)
+        }
+    }
+
     /**
      * 获取掌上公交线路详情（解析 mg:${cityCode}:${cityName}:${lineName}:${dir}）
      * 调用 CMD=103 获取站表/首末班/票价，调用 CMD=104 获取在途车辆及到站时间，使用 RouteProjectionMath 计算站间比例
      */
     suspend fun getLineDetail(lineId: String, targetOrder: Int? = null): BusLineDetail = withContext(Dispatchers.IO) {
-        val parts = lineId.removePrefix("mg:").split(":")
-        if (parts.size < 4) {
-            throw IllegalArgumentException("Invalid Mygolbs lineId: $lineId. Expected format: mg:cityCode:cityName:lineName:dir")
-        }
-        val cityCode = parts[0]
-        val cityName = normalizeCityName(parts[1])
-        val lineName = parts[2]
-        val dirStr = parts[3]
-        val dirInt = dirStr.toIntOrNull() ?: 1
+        val ref = MygolbsIds.parseLineId(lineId)
+            ?: throw IllegalArgumentException("Invalid Mygolbs lineId: $lineId. Expected format: mg:cityCode:cityName:lineName:dir")
+        val cityCode = ref.cityCode
+        val cityName = normalizeCityName(ref.cityName)
+        val lineName = ref.lineName
+        val dirStr = ref.direction
 
         // 1. 获取站表与基础信息 (CMD=103)：静态数据按线路方向缓存 12 小时，轮询时只调 CMD=104
-        val routeStaticKey = "$cityCode|$cityName|$lineName|$dirStr"
-        val routeStatic = routeStaticCache.get(routeStaticKey) {
-            fetchRouteStatic(cityCode, cityName, lineName, dirStr)
-        }
+        val routeStaticKey = routeStaticKey(cityCode, cityName, lineName, dirStr)
+        val routeStatic = loadRouteStatic(cityCode, cityName, lineName, dirStr)
         if (routeStatic.stops.isEmpty()) {
             // 空站表不缓存 12 小时，下次重新拉取
             routeStaticCache.invalidate(routeStaticKey)
@@ -730,25 +844,21 @@ class MygolbsApiClient(
         val runState = realtimeJson.optInt("runState", 0)
         val hasReal = realtimeJson.optInt("hasReal", 1)
 
-        val operatingState = when {
-            runState == 1 -> LineOperatingState.SUSPENDED
-            hasReal == 0 -> LineOperatingState.NO_REALTIME
-            else -> LineOperatingState.RUNNING
-        }
-        val statusDescription = when {
-            runState == 1 -> "该线路已停运"
-            hasReal == 0 -> "该线路未开通实时数据查询"
-            else -> ""
-        }
+        // CMD=104 顶层 planTime 是「起点预计发车」，对应车来了的 preArrivalTime。
+        // 首页收藏卡「没车时显示下一班」靠的就是这个字段。
+        val planTime = realtimeJson.optString("planTime").trim().takeIf { it.isNotBlank() }
 
         // 解析逐站到站预测 (routeOnStationRTimeInfoList)
         val onStationArr = realtimeJson.optJSONArray("routeOnStationRTimeInfoList") ?: JSONArray()
         val etaMap = HashMap<String, Double>() // busNumber -> 分钟
+        val distanceMap = HashMap<String, Int>() // busNumber -> 到本站距离（米）
         for (i in 0 until onStationArr.length()) {
             val e = onStationArr.getJSONObject(i)
             val bNum = e.optString("busNumber")
             if (bNum.isNotBlank()) {
                 etaMap[bNum] = e.optDouble("busToStationTime", 0.0)
+                // 上游偶尔给 0；0 米没有展示价值，按缺省处理
+                e.optInt("busToStationDistance", -1).takeIf { it > 0 }?.let { distanceMap[bNum] = it }
             }
         }
 
@@ -764,6 +874,8 @@ class MygolbsApiClient(
             val isArrived = (statusType == "0")
             val bLat = b.optDouble("bus_lat", 0.0)
             val bLng = b.optDouble("bus_lng", 0.0)
+            // list 里的 stationName 就是这辆车当前所在 / 正开往的站，和车来了 nextStationName 对齐
+            val nextStopName = b.optString("stationName").takeIf { it.isNotBlank() }
 
             val prevStop = stopsList.find { it.order == bOrder - 1 }
             val curTargetStop = stopsList.find { it.order == bOrder }
@@ -795,10 +907,38 @@ class MygolbsApiClient(
                     wgsLng = bLng,
                     speedKmh = 0.0,
                     capacityLevel = -1,
+                    distanceToTargetMeters = distanceMap[busNumber],
                     etaSeconds = etaSeconds,
-                    expectedArrivalTimeText = etaText
+                    expectedArrivalTimeText = etaText,
+                    nextStopName = nextStopName
                 )
             )
+        }
+
+        // 候车站前面还有车就不动；车都过了本站才按首末班判运营状态：
+        // 末班之后显示「末班已过」，首班之前显示「等待发车」。
+        val hasUpcomingBus = liveBuses.any { it.order <= effectiveTargetOrder }
+        val serviceState = if (hasUpcomingBus) {
+            ServiceHours.State.UNKNOWN
+        } else {
+            ServiceHours.state(
+                nowHHMM = beijingNowHHMM(),
+                windows = listOf(ServiceHours.Window(firstTime, lastTime))
+            )
+        }
+        val operatingState = when {
+            runState == 1 -> LineOperatingState.SUSPENDED
+            hasReal == 0 -> LineOperatingState.NO_REALTIME
+            serviceState == ServiceHours.State.AFTER_LAST -> LineOperatingState.ENDED
+            serviceState == ServiceHours.State.BEFORE_FIRST -> LineOperatingState.WAITING
+            else -> LineOperatingState.RUNNING
+        }
+        val statusDescription = when {
+            runState == 1 -> "该线路已停运"
+            hasReal == 0 -> "该线路未开通实时数据查询"
+            serviceState == ServiceHours.State.AFTER_LAST -> "末班已过"
+            serviceState == ServiceHours.State.BEFORE_FIRST -> "等待发车"
+            else -> ""
         }
 
         val startStop = stopsList.firstOrNull()?.name ?: ""
@@ -842,8 +982,171 @@ class MygolbsApiClient(
             buses = liveBuses,
             operatingState = operatingState,
             statusDescription = statusDescription,
+            nextDepartureFromStart = planTime,
             targetOrder = targetOrder ?: 0,
             updatedAtMillis = wallClock.now().toEpochMilliseconds()
         )
+    }
+
+    /**
+     * 首站发车时刻表（CMD=207）。
+     *
+     * 以前掌上公交这里只返回一句「暂不提供」，但上游其实有完整班表：
+     * `list[].group` 是时段（如 07:43~10:00），`list[].times[].time` 是班次，
+     * `special=1` 表示计划班次、0 表示按历史数据推算。ROUTEID 从 CMD=103 的 routeId 取。
+     */
+    suspend fun getTimetable(
+        cityCode: String,
+        cityName: String,
+        line: BusLineDirection,
+        atTimeHHMM: String? = null
+    ): LineTimetable = withContext(Dispatchers.IO) {
+        val ref = MygolbsIds.lineRef(line.lineId)
+        // 线路 id 里带的就是这条线真正的城市；收藏里的线路可能不属于当前选中的城市，
+        // 所以优先用 id 里的城市名，只有 id 里没有时才退回调用方给的城市。
+        val effectiveCity = normalizeCityName(
+            ref?.cityName?.takeIf { it.isNotBlank() } ?: cityName
+        )
+        val lineName = line.name.ifBlank { ref?.lineName.orEmpty() }
+        val direction = ref?.direction ?: if (line.direction == 0) "1" else "2"
+        // 附近站来的 id 城市码是 0（占位），这时才用调用方的真实城市码
+        val effectiveCode = ref?.cityCode?.takeIf { it.isNotBlank() && it != "0" } ?: cityCode
+
+        if (lineName.isBlank() || effectiveCity.isBlank()) {
+            return@withContext fallbackTimetable(line, null, lineName)
+        }
+
+        // 103 可能已经在看线路详情时拉过，命中 12 小时缓存就只多打一次 207
+        val static = runCatching {
+            loadRouteStatic(effectiveCode, effectiveCity, lineName, direction)
+        }.getOrNull()
+        val routeId = static?.routeId.orEmpty()
+        if (routeId.isBlank()) {
+            return@withContext fallbackTimetable(line, static, lineName)
+        }
+
+        val raw = runCatching {
+            timetableCache.get("$routeId|$direction") {
+                fetchTimetable(effectiveCity, direction, routeId)
+            }
+        }.getOrNull()
+
+        if (raw == null || raw.departures.isEmpty()) {
+            return@withContext fallbackTimetable(line, static, lineName)
+        }
+
+        val reference = atTimeHHMM?.let { TimetableRules.normalizeClock(it) } ?: beijingNowHHMM()
+        val resolved = TimetableRules.resolveNext(
+            todayDepartures = raw.departures,
+            yesterdayDepartures = emptyList(),
+            referenceHHMM = reference,
+            strict = atTimeHHMM != null
+        )
+        val next = raw.nextTime ?: resolved.time
+
+        LineTimetable(
+            lineId = line.lineId,
+            lineName = lineName,
+            nextDeparture = next,
+            nextDepartureSource = when {
+                next == null -> null
+                // special=1 是计划班次，0/缺省是按历史数据推算
+                raw.special == "1" -> "计划发车时间"
+                else -> "历史推算班次"
+            },
+            todayDepartures = raw.departures,
+            segments = raw.segments,
+            depDesc = if (raw.special == "1") TIMETABLE_PLANNED_DESC else TIMETABLE_HISTORY_DESC
+        )
+    }
+
+    private suspend fun fetchTimetable(
+        cityName: String,
+        direction: String,
+        routeId: String
+    ): TimetableRaw {
+        val json = callApi(
+            mapOf(
+                "CMD" to "207",
+                "CITYNAME" to cityName,
+                "DIRECTION" to direction,
+                "ROUTEID" to routeId,
+                "CITYKEY" to ""
+            )
+        )
+
+        val list = json.optJSONArray("list") ?: JSONArray()
+        val departures = ArrayList<String>()
+        val segments = ArrayList<TimetableSegment>()
+        for (i in 0 until list.length()) {
+            val group = list.optJSONObject(i) ?: continue
+            val times = group.optJSONArray("times") ?: continue
+            val groupTimes = ArrayList<String>()
+            for (j in 0 until times.length()) {
+                val item = times.optJSONObject(j) ?: continue
+                // isDelete=1 是临时取消的班次，接口里带删除线；我们没有删除线样式，直接不展示
+                if (item.optInt("isDelete", 0) == 1) continue
+                val clock = TimetableRules.normalizeClock(item.optString("time")) ?: continue
+                groupTimes.add(clock)
+            }
+            groupTimes.sort()
+            departures.addAll(groupTimes)
+            val (fromTime, toTime) = parseTimetableGroup(group.optString("group"))
+            segments.add(
+                TimetableSegment(
+                    fromTime = fromTime,
+                    toTime = toTime,
+                    intervalTips = when (group.optInt("peak", 0)) {
+                        1 -> "早高峰"
+                        2 -> "晚高峰"
+                        else -> ""
+                    },
+                    departures = groupTimes
+                )
+            )
+        }
+        departures.sort()
+
+        return TimetableRaw(
+            departures = departures,
+            segments = segments,
+            nextTime = TimetableRules.normalizeClock(json.optString("nextTime")),
+            special = json.optString("special").ifBlank { "0" }
+        )
+    }
+
+    private fun parseTimetableGroup(group: String): Pair<String, String> {
+        val clean = group.trim()
+        if (clean.isBlank()) return "" to ""
+        val separator = when {
+            clean.contains('~') -> '~'
+            clean.contains('～') -> '～'
+            else -> return clean to ""
+        }
+        return clean.substringBefore(separator).trim() to clean.substringAfter(separator).trim()
+    }
+
+    private fun fallbackTimetable(
+        line: BusLineDirection,
+        static: RouteStatic?,
+        lineName: String
+    ): LineTimetable {
+        val first = static?.firstTime?.takeIf { it.isNotBlank() } ?: line.firstTime
+        val last = static?.lastTime?.takeIf { it.isNotBlank() } ?: line.lastTime
+        val desc = if (first.isNotBlank() || last.isNotBlank()) {
+            "$TIMETABLE_FALLBACK：${first.ifBlank { "--" }} - ${last.ifBlank { "--" }}"
+        } else {
+            TIMETABLE_FALLBACK
+        }
+        return LineTimetable(
+            lineId = line.lineId,
+            lineName = lineName.ifBlank { line.name },
+            depDesc = desc
+        )
+    }
+
+    private fun beijingNowHHMM(): String {
+        val now = wallClock.now().toLocalDateTime(BEIJING)
+        return "${now.hour.toString().padStart(2, '0')}:${now.minute.toString().padStart(2, '0')}"
     }
 }

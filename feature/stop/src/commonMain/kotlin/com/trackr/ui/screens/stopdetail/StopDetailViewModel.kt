@@ -142,6 +142,7 @@ class StopDetailViewModel(
             is StopDetailEvent.SelectPlatform -> selectStopIndex(event.index)
             is StopDetailEvent.ToggleFavorite -> toggleFavoriteByKey(event.rowKey)
             StopDetailEvent.StartSelecting -> _uiState.update { it.copy(selecting = true, selectedLineKeys = emptySet()) }
+            is StopDetailEvent.StartSelectingWith -> startSelectingWith(event.rowKey)
             StopDetailEvent.CancelSelecting -> exitSelecting()
             is StopDetailEvent.ToggleLine -> toggleLine(event.rowKey)
             StopDetailEvent.SaveSelectionAsRoute -> saveSelectionAsRoute()
@@ -245,10 +246,11 @@ class StopDetailViewModel(
                 } else {
                     rawStopList
                 }
-                // 若站点缺少 distanceMeters，且用户位置已知，计算实际测地距离
+                // 若站点缺少 distanceMeters，且用户位置和站点坐标都已知，计算实际测地距离。
+                // 坐标 0,0 是「没给」，不能拿去算：否则会算出上万公里。
                 val stopList = if (userLoc != null) {
                     resolved.map { s ->
-                        if ((s.distanceMeters ?: 0) <= 0) {
+                        if ((s.distanceMeters ?: 0) <= 0 && s.wgsLat > 0.0 && s.wgsLng > 0.0) {
                             val dist = RouteProjectionMath.calculateDistanceMeters(
                                 userLoc.first, userLoc.second, s.wgsLat, s.wgsLng
                             )
@@ -392,6 +394,17 @@ class StopDetailViewModel(
 
     private fun exitSelecting() {
         _uiState.update { it.copy(selecting = false, selectedLineKeys = emptySet()) }
+    }
+
+    /** 长按一条线进选线模式：这条能选就顺手勾上 */
+    private fun startSelectingWith(rowKey: String) {
+        _uiState.update {
+            val row = it.rows.firstOrNull { r -> r.key == rowKey }
+            it.copy(
+                selecting = true,
+                selectedLineKeys = if (row?.selectable == true) setOf(rowKey) else emptySet()
+            )
+        }
     }
 
     private fun toggleLine(rowKey: String) {

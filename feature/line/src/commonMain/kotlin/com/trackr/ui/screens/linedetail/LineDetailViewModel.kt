@@ -24,6 +24,7 @@ import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.LineOperatingState
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.LiveBus
+import com.trackr.core.model.RailMode
 import com.trackr.core.model.ScheduledReminder
 import com.trackr.core.model.TrackingSessionState
 import com.trackr.core.model.TrackingTarget
@@ -106,6 +107,8 @@ data class LineUserMessage(
 data class LineDetailUiState(
     /** 进页面时带来的线路名（数据回来前顶栏先显示它） */
     val lineNameHint: String = "",
+    /** 进页面时带来的站序（从某个站点点进来才有）；页面据此把走向条直接滚到那一站 */
+    val entryStopOrder: Int? = null,
     /** 第一次网络请求还没回来 */
     val isLoading: Boolean = true,
     /** 有请求在进行（轮询、选站、手动刷新）；不用来画下拉圈 */
@@ -117,6 +120,8 @@ data class LineDetailUiState(
     val selectedStop: BusStop? = null,
     val panelMode: PanelMode = PanelMode.STATION_CARD,
     val followedBusId: String? = null,
+    /** 单车跟随时返回到哪一级：从车辆列表进来回列表，从走向条点车进来回站点卡 */
+    val followBackTo: PanelMode = PanelMode.STATION_CARD,
     val timetable: LineTimetable? = null,
     val isTimetableSheetOpen: Boolean = false,
     val errorMessage: String? = null,
@@ -129,6 +134,8 @@ data class LineDetailUiState(
     val isReminderDialogOpen: Boolean = false,
     val preferredTransitCodeProvider: TransitCodeProvider = TransitCodeProvider.ASK_ALWAYS,
     val isTransitCodeSheetOpen: Boolean = false,
+    /** 走向条样式（「我的」全局设置）：横排只有横条，竖排是时间轴列表 */
+    val railMode: RailMode = RailMode.Horizontal,
     /** 当前追踪会话（页面据此判断「本站是否正在追踪」） */
     val trackingSession: TrackingSessionState = TrackingSessionState(),
     val userMessages: List<LineUserMessage> = emptyList()
@@ -173,7 +180,12 @@ class LineDetailViewModel(
     private val clockMillis: () -> Long = { ProcessMonotonicClock.elapsedMillis() }
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(LineDetailUiState(lineNameHint = lineNameHint))
+    private val _uiState = MutableStateFlow(
+        LineDetailUiState(
+            lineNameHint = lineNameHint,
+            entryStopOrder = initialTargetOrder?.takeIf { it > 0 }
+        )
+    )
     val uiState: StateFlow<LineDetailUiState> = _uiState.asStateFlow()
 
     private var currentLineId: String = initialLineId
@@ -199,6 +211,13 @@ class LineDetailViewModel(
     /** 最近一次发起刷新的时刻（[clockMillis]），null 表示尚未请求过 */
     @Volatile
     private var lastRefreshAtMillis: Long? = null
+
+    /**
+     * 每条线路方向的时刻表缓存，避免 10 秒轮询时反复拉取。
+     * 必须在 [init] 之前初始化：`viewModelScope.launch` 跑在 `Dispatchers.Main.immediate` 上，
+     * 命中缓存时首次请求会在构造期间同步跑完并读到这里，声明在 init 之后会拿到 null 而崩溃。
+     */
+    private val timetableCache = mutableMapOf<String, LineTimetable>()
 
     // C1：不再每秒倒计时，固定 10 秒一轮；手动刷新 / 选站后用 restart() 从现在起重新计时（e683286）
     internal val pollingCoordinator = PollingCoordinator(
@@ -237,6 +256,11 @@ class LineDetailViewModel(
         viewModelScope.launch {
             settings.preferredTransitCodeProvider.collectLatest { provider ->
                 _uiState.update { it.copy(preferredTransitCodeProvider = provider) }
+            }
+        }
+        viewModelScope.launch {
+            settings.railMode.collectLatest { mode ->
+                _uiState.update { it.copy(railMode = mode) }
             }
         }
         viewModelScope.launch {
@@ -480,9 +504,6 @@ class LineDetailViewModel(
         }
     }
 
-    /** 每条线路方向的时刻表缓存，避免 10 秒轮询时反复拉取 */
-    private val timetableCache = mutableMapOf<String, LineTimetable>()
-
     /** 核心数据处理连续失败次数（自动重试用，成功或达到上限后复位） */
     private var autoRetryCount = 0
 
@@ -530,6 +551,8 @@ class LineDetailViewModel(
     /**
      * 计算默认选中的候车站：
      * 取「首辆车前面一站」（若车辆已在第 N 站，则看第 N+1 站）；无在途车退回首站。
+     * 首车已到终点站时后面没有站，退回起点站走「等下一班」，不能退回首车所在站，
+     * 否则每次打开线路页都会选中终点站、走向条滚到最右（issue #9）。
      */
     private fun calculateDefaultStop(detail: BusLineDetail): BusStop? {
         val stops = detail.stops
@@ -538,6 +561,7 @@ class LineDetailViewModel(
         if (buses.isEmpty()) return stops.first()
 
         val leadOrder = buses.maxOfOrNull { it.order } ?: return stops.first()
+        if (leadOrder >= stops.maxOf { it.order }) return stops.first()
         return stops.find { it.order == leadOrder + 1 }
             ?: stops.find { it.order == leadOrder }
             ?: stops.first()
@@ -618,7 +642,13 @@ class LineDetailViewModel(
 
     /** 选中并跟随某辆车 */
     fun selectBusToFollow(bus: LiveBus) {
-        _uiState.update { it.copy(followedBusId = bus.busId, panelMode = PanelMode.BUS_FOLLOW) }
+        _uiState.update {
+            it.copy(
+                followedBusId = bus.busId,
+                panelMode = PanelMode.BUS_FOLLOW,
+                followBackTo = if (it.panelMode == PanelMode.BUS_LIST) PanelMode.BUS_LIST else PanelMode.STATION_CARD
+            )
+        }
     }
 
     /** 展开全线车辆列表 */
@@ -626,9 +656,19 @@ class LineDetailViewModel(
         _uiState.update { it.copy(panelMode = PanelMode.BUS_LIST, followedBusId = null) }
     }
 
-    /** 从车辆列表或单车跟随返回站点到站卡 */
-    fun backToStationCard() {
-        _uiState.update { it.copy(panelMode = PanelMode.STATION_CARD, followedBusId = null) }
+    /**
+     * 返回上一级：单车跟随 → 车辆列表（从走向条点车进来的回站点卡），车辆列表 → 站点卡。
+     * @return false 表示已经在站点卡，调用方应该退出页面
+     */
+    fun backFromPanel(): Boolean {
+        val state = _uiState.value
+        val target = when (state.panelMode) {
+            PanelMode.STATION_CARD -> return false
+            PanelMode.BUS_LIST -> PanelMode.STATION_CARD
+            PanelMode.BUS_FOLLOW -> state.followBackTo
+        }
+        _uiState.update { it.copy(panelMode = target, followedBusId = null) }
+        return true
     }
 
     /**

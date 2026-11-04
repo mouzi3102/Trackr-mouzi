@@ -1,6 +1,8 @@
 package com.trackr.ui.screens.stopdetail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -344,6 +346,7 @@ private fun PlatformChips(labels: List<String>, selected: Int, onEvent: (StopDet
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StopLineRow(
     row: StopLineRowUi,
@@ -351,10 +354,17 @@ private fun StopLineRow(
     checked: Boolean,
     onEvent: (StopDetailEvent) -> Unit
 ) {
+    // 能点开线路页只看 lineId（掌上公交的站点行不带站序）；勾进「一起等」仍然要有站序
     val onClick: (() -> Unit)? = when {
-        !row.selectable -> null
-        selecting -> ({ onEvent(StopDetailEvent.ToggleLine(row.key)) })
-        else -> ({ onEvent(StopDetailEvent.OpenLine(row)) })
+        selecting -> if (row.selectable) ({ onEvent(StopDetailEvent.ToggleLine(row.key)) }) else null
+        row.lineId.isNotBlank() -> ({ onEvent(StopDetailEvent.OpenLine(row)) })
+        else -> null
+    }
+    // 长按一条线 = 快捷进「选几条一起等」，并把这条勾上
+    val onLongClick: (() -> Unit)? = if (selecting) {
+        null
+    } else {
+        ({ onEvent(StopDetailEvent.StartSelectingWith(row.key)) })
     }
     Surface(
         shape = MaterialTheme.shapes.medium,
@@ -364,7 +374,17 @@ private fun StopLineRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .then(
+                    if (onClick != null || onLongClick != null) {
+                        Modifier.combinedClickable(
+                            onClick = { onClick?.invoke() },
+                            onLongClickLabel = stringResource(StopRes.string.stop_pick_lines),
+                            onLongClick = onLongClick
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .heightIn(min = 64.dp)
                 .padding(start = 12.dp, end = if (selecting) 14.dp else 4.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -377,25 +397,43 @@ private fun StopLineRow(
                 )
                 Spacer(Modifier.width(4.dp))
             }
-            LineBadge(row.lineName)
-            Spacer(Modifier.width(12.dp))
+            /* 上下两行：第一行线路号 + 终点，第二行运营时间 + 到站。
+               线路名可能很长（如「盘龙大观园河西旅游专线」），到站也可能是整句状态文字（掌上公交），
+               挤在一行里会把中间压成 0 宽、时间竖着排。第一行只放名字和线路，
+               名字过长时在自己的格子里省略，不再把终点挤走；文字都限一行。 */
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (row.endStop.isNotBlank()) "→ ${row.endStop}" else row.lineName,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (row.hours.isNotBlank() && !selecting) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LineBadge(row.lineName, modifier = Modifier.widthIn(max = 200.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        text = row.hours,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (row.endStop.isNotBlank()) "→ ${row.endStop}" else row.lineName,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                 }
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    if (row.hours.isNotBlank() && !selecting) {
+                        Text(
+                            text = row.hours,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    ArrivalColumn(row.arrival, modifier = Modifier.widthIn(max = 176.dp))
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            ArrivalColumn(row.arrival)
             if (!selecting) {
                 IconButton(
                     onClick = { onEvent(StopDetailEvent.ToggleFavorite(row.key)) },
@@ -502,35 +540,37 @@ private fun WatchLineRow(line: WatchLineUi) {
                     Text(line.plate, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            ArrivalColumn(line.arrival)
+            ArrivalColumn(line.arrival, modifier = Modifier.widthIn(max = 160.dp))
         }
     }
 }
 
 // ------------------------------------------------------------------ 小件
 
-/** 线路号徽标 */
+/** 线路号徽标；名字过长时按调用方给的最大宽度省略，不把同一行的终点挤走 */
 @Composable
-internal fun LineBadge(name: String) {
+internal fun LineBadge(name: String, modifier: Modifier = Modifier) {
     Surface(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = modifier
     ) {
         Text(
             text = name,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(min = 40.dp).padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
 }
 
-/** 右侧到站大字：数字 + 小单位，下面一行小字；颜色按 [ArrivalTone] */
+/** 右侧到站大字：数字 + 小单位，下面一行小字；颜色按 [ArrivalTone]。宽度由调用方限制，超了省略 */
 @Composable
-private fun ArrivalColumn(arrival: ArrivalDisplay) {
+private fun ArrivalColumn(arrival: ArrivalDisplay, modifier: Modifier = Modifier) {
     val color = toneColor(arrival.tone)
-    Column(horizontalAlignment = Alignment.End) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.End) {
         Row(verticalAlignment = Alignment.Bottom) {
             val numeric = arrival.unit != null
             Text(
@@ -541,7 +581,8 @@ private fun ArrivalColumn(arrival: ArrivalDisplay) {
                 } else {
                     MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
                 },
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             val unit = arrival.unit
             if (unit != null) {
@@ -554,7 +595,8 @@ private fun ArrivalColumn(arrival: ArrivalDisplay) {
                 arrival.detail,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (arrival.detailIsWarning) TrackrTheme.colors.warn else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

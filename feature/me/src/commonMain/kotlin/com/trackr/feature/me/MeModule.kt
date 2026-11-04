@@ -42,6 +42,10 @@ val meModule = module {
     viewModel { WebDavBackupViewModel(backupRepository = get(), configRepository = get()) }
     viewModel {
         val version = getOrNull<AppVersionInfo>() ?: AppVersionInfo(1, "0.0.1")
-        AboutViewModel(updateChecker = getOrNull(), versionProvider = { version.code to version.name })
+        AboutViewModel(
+            updateChecker = getOrNull(),
+            updateInstaller = getOrNull(),
+            versionProvider = { version.code to version.name }
+        )
     }
 }
