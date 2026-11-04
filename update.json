@@ -1,11 +1,11 @@
 {
-  "versionCode": 11,
-  "versionName": "0.1.6",
+  "versionCode": 12,
+  "versionName": "0.1.7",
   "minSupportedVersionCode": 1,
-  "changelog": "版本 0.1.6 / versionCode 11，arm64-v8a 单包，4.64 MB（已签名，V2，SHA-1 `657cc6b3f34a78a3392b9b8aa731eadc95d53998`）。\n\n这一版只做一件事：**WebDAV 备份拿坚果云真能用**。\n\n- 服务器地址规范化：缺 scheme 补 **https**（应用禁明文，原来补 http 等于连不上）；识别坚果云并强制 https、自动补 `/dav` 路径（只填 `dav.jianguoyun.com` 也能用）。\n- 页面新增「**用坚果云**」一键填入地址；密码框**默认明文显示**、右侧可切「隐藏」——填的是坚果云「安全码」，看不见打错一位就白试一轮。\n- **空密码不再打服务器**：测试连接 / 立即备份 / 刷新列表 / 恢复 / 删除五条入口统一拦截并提示该填安全码，不再回一个莫名其妙的 401。\n- **远端目录逐级创建**：坚果云不支持一次建多级目录（父目录不存在时 MKCOL 报 409 / 423），改成按路径段一层层建，已存在则跳过。\n- WebDAV 改用专用客户端，单次请求总超时 20 秒 → **3 分钟**：公网网盘握手 + 上传慢，按弱网接口的红线会把正常备份判成失败。\n- 恢复结束后**报出合并结果**：收藏新增几条、本机已有几条保持不动、定时提醒新增几条。\n- README 新增「备份与恢复（坚果云 WebDAV）」一节：五段备份内容、各自恢复语义（设置 / 搜索记录覆盖，收藏 / 提醒按 id 合并）、不备份高德 Key 与密码。\n\n测试：`core:network` 114、`core:data` 186、`feature:me` 60 全绿（新增坚果云 URL 用例、逐级建目录用例、7 个 WebDAV 页 ViewModel 用例）。",
-  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.6",
+  "changelog": "WebDAV：记住登录信息、固定一个备份文件每次覆盖、对话框去掉两个输入项\n按使用反馈把这一页做减法 + 补上真正需要的记忆：\n\n- **密码有记忆**：新增 `webdav_password` / `webdav_remember_password` 两项存储（新 DataStore 与旧\n  SharedPreferences 两份都写），进页面自动回填服务器地址、邮箱和安全码；页面加「记住密码」开关，\n  **关掉立刻清除存过的那份**（不上传任何东西，只在本机私有目录）。原来「密码只留内存」的文案随之改掉。\n- **每次备份覆盖上一份**：远端只写固定文件 `trackr_backup.json`（PUT 覆盖），不再按时间戳堆一串历史\n  文件；`backupFileNameFor` 删掉。恢复列表把当前固定备份排在最前，老的时间戳文件仍然能选出来恢复\n  （不丢历史）。\n- **对话框去掉两个字段**：「远端目录」「文件名前缀（可选）」不再让用户填 —— 坚果云这类场景里它们只会\n  造成填错；远端目录仍按已保存的值使用（`trackr_backups` 默认），前缀概念整体移除。\n  新增两行说明：备份内容清单 + 「每次备份都覆盖上一份」。\n- 测试：feature:me 62 个用例（新增密码回填、关掉「记住密码」即清除、空密码拦截、恢复流程与结果计数），\n  core:data 全绿（固定文件名与逐级建目录断言已跟上）。\n- versionCode 12 / versionName \"0.1.7\"。",
+  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.7",
   "downloadUrls": {
-    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.6/trackr-0.1.6-arm64-v8a.apk"
+    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.7/trackr-0.1.7-arm64-v8a.apk"
   },
   "publishTime": "2026-11-04",
   "forceUpdate": false
