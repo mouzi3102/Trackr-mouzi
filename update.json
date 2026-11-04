@@ -1,11 +1,11 @@
 {
-  "versionCode": 10,
-  "versionName": "0.1.5",
+  "versionCode": 11,
+  "versionName": "0.1.6",
   "minSupportedVersionCode": 1,
-  "changelog": "版本 0.1.5 / versionCode 10，arm64-v8a 单包，4.6 MB（已签名，V2，SHA-1 657cc6b3f34a78a3392b9b8aa731eadc95d53998）。\n\n## 这次做了什么\n- **WebDAV**：新增常驻「从备份恢复」入口（没拉列表时点它先去读远端目录、读到自动弹文件选择框）+ 每条备份的「恢复」按钮；修掉「立即备份」必失败的一个序列化 bug；备份补上走向条样式、应用配色、城市搜索历史、定时提醒；收藏和提醒改成按 id **合并**（本地已有的保留本地版本，不再被备份覆盖）；0.1.4 的旧备份文件照样能恢复。\n- **数据来源加「自动」**：先车来了，空了自动回落掌上公交（搜索两源并发，整段选一家）；单源模式行为不变。\n- **UI**：公交首页顶栏换掉 `LargeTopAppBar`，修掉顶部大片空白；8 个页面顶栏底色/滚动色/insets 统一；新增「应用配色」蓝 / 绿 / 橙 / 紫 / 粉（只换品牌色，到站绿·预警橙·步行灰含义不变，长辈版不受影响）。\n- **实时活动 / 流体云**：没实现该功能的机型（部分 vivo / iQOO）不再弹引导；「暂不开启」终于会记住，不再每次点追踪都弹；冷启动引导一次。\n- **构建**：只出 arm64-v8a；彻底移除高德 SDK 的残留声明与没用的 Key 注入；新增 tag 触发的 CI 出包 workflow。\n\n## 安装\n直接覆盖装上一版 0.1.5 预发包可以（同一把签名）。若你装的是别的签名构建，需先卸载。",
-  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.5",
+  "changelog": "WebDAV 备份按坚果云重做：地址纠偏、逐级建目录、密码可见、超时放宽\n要求（本轮验收标准就是坚果云 WebDAV）：能备份本机设置与收藏到云端，能从云端恢复回来，\n数据是 JSON 文件，密码框看得见自己填了什么。已有的实现四条都在，但拿坚果云真连会有几处硬伤，这轮全修掉：\n\n- 地址规范化：缺 scheme 原来补 http:// —— 应用的网络策略禁明文，等于必失败，改成补 https；\n  并且识别坚果云：强制 https、路径没写 /dav 的自动补上（只填域名 → /dav，填了 /mypath → /dav/mypath）。\n  新增 `isJianguoYunUrl` / `JIANGUOYUN_PRESET_URL`。\n- 页面加「用坚果云」一键填入地址（`btn_webdav_preset_jianguo`），密码框默认明文 + 「显示 / 隐藏」切换\n  （`btn_webdav_password_visibility`）：填的是安全码，看不见打错一位就白折腾一轮。\n- 空密码不再打服务器：测试连接 / 备份 / 刷新 / 下载 / 删除五条入口统一拦截并提示\n  「先填密码（坚果云填安全码，不是登录密码）」，原来会吃一个莫名的 401。\n- 目录逐级创建：MKCOL 从一次改成按路径段一层层建（坚果云父目录不存在时直接 409 / 423），\n  已存在（207/200/405/409/412）跳过，不再对已有目录重复建。\n- WebDAV 用专用 Ktor 客户端，单次请求总超时 20s → 3 分钟（`defaultWebDavTransport` /\n  `NetworkTimeouts.WEBDAV_REQUEST_MS`）；坚果云的 TLS 握手 + 上传用弱网接口那根红线会被误判失败。\n- 恢复完成后把合并结果报出来：新增几条收藏、本机已有几条不动、补了几条提醒（RestoreOutcome 的数字终于到了界面）。\n- 文案与 README：新增「🗄 备份与恢复（坚果云 WebDAV）」一节写清五段备份内容、各自的恢复语义\n  （设置 / 搜索记录覆盖，收藏 / 提醒按 id 合并）和不备份的东西；功能列表补上备份、数据来源「自动」、配色。\n- 测试：core:network 114、core:data 186、feature:me 60 全绿，新增坚果云 URL 用例、逐级建目录用例、\n  空密码拦截与恢复流程的 ViewModel 用例（7 个）。\n- versionCode 11 / versionName 0.1.6。",
+  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.6",
   "downloadUrls": {
-    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.5/trackr-0.1.5-arm64-v8a.apk"
+    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.6/trackr-0.1.6-arm64-v8a.apk"
   },
   "publishTime": "2026-11-04",
   "forceUpdate": false
