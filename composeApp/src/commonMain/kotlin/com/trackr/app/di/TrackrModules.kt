@@ -44,7 +44,7 @@ val routeDataModule: Module = module {
 
 /** 根级壳状态（界面模式、字号提示，§8.2）；TrackrRoot 在 Activity 级取 */
 val appShellModule: Module = module {
-    viewModel { AppShellViewModel(settings = get()) }
+    viewModel { AppShellViewModel(settings = get(), liveUpdate = getOrNull()) }
 }
 
 /**
@@ -62,7 +62,10 @@ val webDavBackupModule: Module = module {
             settings = get(),
             searchHistoryRepository = get(),
             favoritesRepository = get(),
-            nowMillis = { Clock.System.now().toEpochMilliseconds() }
+            nowMillis = { Clock.System.now().toEpochMilliseconds() },
+            // 城市搜索历史 + 定时提醒：平台没有就不备份这两段（iOS 没绑提醒仓库）
+            citySearchHistoryRepository = getOrNull(),
+            reminderRepository = getOrNull()
         )
     }
 }

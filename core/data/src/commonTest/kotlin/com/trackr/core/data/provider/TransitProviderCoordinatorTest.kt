@@ -529,6 +529,120 @@ class TransitProviderCoordinatorTest {
     fun testEngineMode_mapsToDataSource() {
         assertEquals(DataSourceType.CHELAILE, EngineMode.CHELAILE.dataSource)
         assertEquals(DataSourceType.MYGOLBS, EngineMode.MYGOLBS.dataSource)
+        // 自动模式的主源是车来了（回落掌上公交在下面的 AUTO 用例里验）
+        assertEquals(DataSourceType.CHELAILE, EngineMode.AUTO.dataSource)
+    }
+
+    @Test
+    fun testSearch_inAutoMode_prefersChelaileWhenItHasLines() = runBlocking {
+        fakeChelaileProvider.searchResult = TransitSearchResult(
+            keyword = "1",
+            lines = listOf(createSummary("1路", source = DataSourceType.CHELAILE))
+        )
+        fakeMygolbsProvider.searchResult = TransitSearchResult(
+            keyword = "1",
+            lines = listOf(createSummary("1路", source = DataSourceType.MYGOLBS))
+        )
+
+        val result = coordinator.search(city = testCity, keyword = "1", mode = EngineMode.AUTO)
+
+        // 两源并发查（AUTO 要知道掌上公交有没有数据），但结果整段用车来了
+        assertEquals(1, fakeChelaileProvider.searchCallCount)
+        assertEquals(1, fakeMygolbsProvider.searchCallCount)
+        assertEquals(DataSourceType.CHELAILE, result.lines.single().source)
+    }
+
+    @Test
+    fun testSearch_inAutoMode_fallsBackToMygolbsWhenChelaileEmpty() = runBlocking {
+        fakeChelaileProvider.searchResult = TransitSearchResult(keyword = "1", lines = emptyList())
+        fakeMygolbsProvider.searchResult = TransitSearchResult(
+            keyword = "1",
+            lines = listOf(createSummary("7路", source = DataSourceType.MYGOLBS))
+        )
+
+        val result = coordinator.search(city = testCity, keyword = "1", mode = EngineMode.AUTO)
+
+        assertEquals(1, fakeMygolbsProvider.searchCallCount)
+        assertEquals(DataSourceType.MYGOLBS, result.lines.single().source)
+    }
+
+    @Test
+    fun testSearch_inAutoMode_chelaileThrowsStillReturnsMygolbs() = runBlocking {
+        fakeChelaileProvider.searchFailure = IllegalStateException("车来了挂了")
+        fakeMygolbsProvider.searchResult = TransitSearchResult(
+            keyword = "1",
+            lines = listOf(createSummary("7路", source = DataSourceType.MYGOLBS))
+        )
+
+        val result = coordinator.search(city = testCity, keyword = "1", mode = EngineMode.AUTO)
+
+        assertEquals(1, result.lines.size)
+        assertEquals(DataSourceType.MYGOLBS, result.lines.single().source)
+    }
+
+    @Test
+    fun testGetNearbyStops_inAutoMode_fallsBackToMygolbsWhenChelaileEmpty() = runBlocking {
+        fakeChelaileProvider.nearbyStopsResult = emptyList()
+        fakeMygolbsProvider.nearbyStopsResult = listOf(NearbyStop(stopId = "mg:s1", name = "掌上站台"))
+
+        val stops = coordinator.getNearbyStops(testCity, 31.23, 121.47, mode = EngineMode.AUTO)
+
+        assertEquals(1, fakeChelaileProvider.nearbyStopsCallCount)
+        assertEquals(1, fakeMygolbsProvider.nearbyStopsCallCount)
+        assertEquals("掌上站台", stops.single().name)
+    }
+
+    @Test
+    fun testGetNearbyStops_inAutoMode_keepsChelaileResult() = runBlocking {
+        fakeChelaileProvider.nearbyStopsResult = listOf(NearbyStop(stopId = "s_cl", name = "车来了站台"))
+        fakeMygolbsProvider.nearbyStopsResult = listOf(NearbyStop(stopId = "mg:s1", name = "掌上站台"))
+
+        val stops = coordinator.getNearbyStops(testCity, 31.23, 121.47, mode = EngineMode.AUTO)
+
+        assertEquals("车来了站台", stops.single().name)
+        // 车来了有数据就不该再问掌上公交
+        assertEquals(0, fakeMygolbsProvider.nearbyStopsCallCount)
+    }
+
+    @Test
+    fun testGetStopDetail_inAutoMode_fallsBackToMygolbsWhenChelaileEmpty() = runBlocking {
+        val request = StopDetailRequest(stopId = "st1", stopName = "某站")
+        fakeChelaileProvider.stopDetailResult = emptyList()
+        fakeMygolbsProvider.stopDetailResult = listOf(NearbyStop(stopId = "mg:st1", name = "某站（掌上）"))
+
+        val detail = coordinator.getStopDetail(testCity, request, EngineMode.AUTO)
+
+        assertEquals(1, fakeChelaileProvider.stopDetailCallCount)
+        assertEquals(1, fakeMygolbsProvider.stopDetailCallCount)
+        assertEquals("某站（掌上）", detail.single().name)
+    }
+
+    @Test
+    fun testGetStopDetail_inAutoMode_stillRoutesMygolbsFeatureStopDirectly() = runBlocking {
+        // mg: 前缀是掌上公交的硬特征：AUTO 也不去问车来了
+        val request = StopDetailRequest(stopId = "mg:st1", stopName = "某站")
+        fakeChelaileProvider.stopDetailResult = listOf(NearbyStop(stopId = "st1", name = "车来了同名站"))
+        fakeMygolbsProvider.stopDetailResult = listOf(NearbyStop(stopId = "mg:st1", name = "某站（掌上）"))
+
+        val detail = coordinator.getStopDetail(testCity, request, EngineMode.AUTO)
+
+        assertEquals(0, fakeChelaileProvider.stopDetailCallCount)
+        assertEquals(1, fakeMygolbsProvider.stopDetailCallCount)
+        assertEquals("某站（掌上）", detail.single().name)
+    }
+
+    @Test
+    fun testSearch_singleModesStillNeverAskTheOtherSource() = runBlocking {
+        // 保护原语义：CHELAILE / MYGOLBS 单源模式不回落到另一家（AUTO 才回落）
+        fakeChelaileProvider.searchResult = TransitSearchResult(keyword = "1", lines = emptyList())
+        coordinator.search(city = testCity, keyword = "1", mode = EngineMode.CHELAILE)
+        assertEquals(1, fakeChelaileProvider.searchCallCount)
+        assertEquals(0, fakeMygolbsProvider.searchCallCount)
+
+        fakeMygolbsProvider.searchResult = TransitSearchResult(keyword = "1", lines = emptyList())
+        coordinator.search(city = testCity, keyword = "1", mode = EngineMode.MYGOLBS)
+        assertEquals(1, fakeMygolbsProvider.searchCallCount)
+        assertEquals(1, fakeChelaileProvider.searchCallCount)
     }
 }
 

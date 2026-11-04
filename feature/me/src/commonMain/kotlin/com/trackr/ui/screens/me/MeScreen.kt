@@ -4,7 +4,9 @@ package com.trackr.ui.screens.me
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -52,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -63,10 +67,13 @@ import com.trackr.core.designsystem.resources.Res
 import com.trackr.core.designsystem.resources.action_cancel
 import com.trackr.core.designsystem.resources.data_source_chelaile
 import com.trackr.core.designsystem.resources.data_source_mygolbs
+import com.trackr.core.designsystem.resources.data_source_auto
 import com.trackr.core.designsystem.resources.ic_chevron_right
 import com.trackr.core.designsystem.resources.ic_clock
 import com.trackr.core.designsystem.resources.transit_code
+import com.trackr.core.designsystem.theme.previewColor
 import com.trackr.core.designsystem.theme.TrackrTheme
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.RailMode
 import com.trackr.core.model.ScheduledReminder
@@ -81,6 +88,13 @@ import com.trackr.feature.me.resources.me_data_source
 import com.trackr.feature.me.resources.me_elder_mode
 import com.trackr.feature.me.resources.me_elder_mode_desc
 import com.trackr.feature.me.resources.me_group_display
+import com.trackr.feature.me.resources.me_color_blue
+import com.trackr.feature.me.resources.me_color_green
+import com.trackr.feature.me.resources.me_color_orange
+import com.trackr.feature.me.resources.me_color_palette
+import com.trackr.feature.me.resources.me_color_palette_desc
+import com.trackr.feature.me.resources.me_color_pink
+import com.trackr.feature.me.resources.me_color_purple
 import com.trackr.feature.me.resources.me_rail_mode
 import com.trackr.feature.me.resources.me_rail_mode_desc
 import com.trackr.feature.me.resources.me_group_map
@@ -122,6 +136,7 @@ fun MeScreen(
     var showTransitCodeDialog by rememberSaveable { mutableStateOf(false) }
     var showAlertThresholdDialog by rememberSaveable { mutableStateOf(false) }
     var showRailModeDialog by rememberSaveable { mutableStateOf(false) }
+    var showColorPaletteDialog by rememberSaveable { mutableStateOf(false) }
     var showRemindersSheet by rememberSaveable { mutableStateOf(false) }
 
 
@@ -170,6 +185,14 @@ fun MeScreen(
                         subtitle = stringResource(MeRes.string.me_rail_mode_desc),
                         value = railModeLabel(state.railMode),
                         onClick = { showRailModeDialog = true }
+                    )
+                    GroupDivider()
+                    SettingRow(
+                        title = stringResource(MeRes.string.me_color_palette),
+                        subtitle = stringResource(MeRes.string.me_color_palette_desc),
+                        value = paletteLabel(state.colorPalette),
+                        onClick = { showColorPaletteDialog = true },
+                        modifier = Modifier.testTag("row_color_palette")
                     )
                 }
             }
@@ -324,6 +347,17 @@ fun MeScreen(
         )
     }
 
+    if (showColorPaletteDialog) {
+        ColorPaletteDialog(
+            selected = state.colorPalette,
+            onSelect = {
+                onEvent(MeEvent.SetColorPalette(it))
+                showColorPaletteDialog = false
+            },
+            onDismiss = { showColorPaletteDialog = false }
+        )
+    }
+
     if (showRemindersSheet) {
         RemindersSheet(
             reminders = state.reminders,
@@ -473,7 +507,7 @@ private fun SwitchRow(
     }
 }
 
-/** 「数据来源」：车来了 / 掌上公交 两段胶囊（各配品牌色） */
+/** 「数据来源」：车来了 / 掌上公交 / 自动 三段胶囊（各配品牌色） */
 @Composable
 private fun EngineModeRow(
     selected: EngineMode,
@@ -481,7 +515,8 @@ private fun EngineModeRow(
 ) {
     val options = listOf(
         EngineMode.CHELAILE to stringResource(Res.string.data_source_chelaile),
-        EngineMode.MYGOLBS to stringResource(Res.string.data_source_mygolbs)
+        EngineMode.MYGOLBS to stringResource(Res.string.data_source_mygolbs),
+        EngineMode.AUTO to stringResource(Res.string.data_source_auto)
     )
     Row(
         modifier = Modifier
@@ -491,8 +526,8 @@ private fun EngineModeRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         RowTexts(title = stringResource(MeRes.string.me_data_source), subtitle = null, modifier = Modifier.weight(1f))
-        Spacer(Modifier.width(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.width(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (mode, label) ->
                 val palette = enginePalette(mode)
                 val isSelected = selected == mode
@@ -501,13 +536,16 @@ private fun EngineModeRow(
                     shape = RoundedCornerShape(percent = 50),
                     color = if (isSelected) palette.container else MaterialTheme.colorScheme.surfaceContainerHigh,
                     border = if (isSelected) null else BorderStroke(1.dp, palette.container.copy(alpha = 0.45f)),
-                    modifier = Modifier.heightIn(min = 36.dp)
+                    modifier = Modifier
+                        .heightIn(min = 36.dp)
+                        .testTag("chip_engine_${mode.name.lowercase()}")
                 ) {
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
                         color = if (isSelected) palette.content else palette.container,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                     )
                 }
             }
@@ -515,12 +553,13 @@ private fun EngineModeRow(
     }
 }
 
-/** 数据源品牌配色：车来了=活力橙，掌上公交=公交蓝 */
+/** 数据源品牌配色：车来了=活力橙，掌上公交=公交蓝，自动=中性紫（不抢两家的品牌色） */
 private data class EnginePalette(val container: Color, val content: Color)
 
 private fun enginePalette(mode: EngineMode): EnginePalette = when (mode) {
     EngineMode.CHELAILE -> EnginePalette(container = Color(0xFFF58220), content = Color.White)
     EngineMode.MYGOLBS -> EnginePalette(container = Color(0xFF1565C0), content = Color.White)
+    EngineMode.AUTO -> EnginePalette(container = Color(0xFF7B1FA2), content = Color.White)
 }
 
 /** 单选对话框：点选项即选中并关闭；只有「取消」按钮 */
@@ -553,6 +592,67 @@ private fun <T> ChoiceDialog(
                         RadioButton(selected = option == selected, onClick = null)
                         Spacer(Modifier.width(12.dp))
                         Text(text = label(option), style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
+        }
+    )
+}
+
+/** 应用配色名（和色圈一起显示） */
+@Composable
+private fun paletteLabel(palette: AppColorPalette): String = stringResource(
+    when (palette) {
+        AppColorPalette.BLUE -> MeRes.string.me_color_blue
+        AppColorPalette.GREEN -> MeRes.string.me_color_green
+        AppColorPalette.ORANGE -> MeRes.string.me_color_orange
+        AppColorPalette.PURPLE -> MeRes.string.me_color_purple
+        AppColorPalette.PINK -> MeRes.string.me_color_pink
+    }
+)
+
+
+/** 应用配色选择：每项一个色圈 + 名字，选中的加粗并打勾 */
+@Composable
+private fun ColorPaletteDialog(
+    selected: AppColorPalette,
+    onSelect: (AppColorPalette) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(MeRes.string.me_color_palette)) },
+        text = {
+            Column(modifier = Modifier.selectableGroup()) {
+                AppColorPalette.entries.forEach { palette ->
+                    val isSelected = palette == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = isSelected,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(palette) }
+                            )
+                            .testTag("palette_${palette.name.lowercase()}"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(palette.previewColor)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = paletteLabel(palette),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
                     }
                 }
             }

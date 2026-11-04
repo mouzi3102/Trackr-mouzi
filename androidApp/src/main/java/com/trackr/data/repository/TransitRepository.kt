@@ -17,6 +17,7 @@ import com.trackr.core.model.AlertThreshold
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusLineDirection
 import com.trackr.core.model.DataSourceType
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
@@ -116,8 +117,16 @@ class TransitRepository(
     private val _railMode = MutableStateFlow(RailMode.entries.firstOrNull { it.name == initial.railMode } ?: RailMode.Horizontal)
     override val railMode: StateFlow<RailMode> = _railMode.asStateFlow()
 
+    private val _appColorPalette = MutableStateFlow(
+        AppColorPalette.entries.firstOrNull { it.name == initial.appColorPalette } ?: AppColorPalette.BLUE
+    )
+    override val appColorPalette: StateFlow<AppColorPalette> = _appColorPalette.asStateFlow()
+
     private val _fontScalePromptDismissed = MutableStateFlow(initial.fontScalePromptDismissed ?: false)
     override val fontScalePromptDismissed: StateFlow<Boolean> = _fontScalePromptDismissed.asStateFlow()
+
+    private val _liveUpdatePromptDismissed = MutableStateFlow(initial.liveUpdatePromptDismissed ?: false)
+    override val liveUpdatePromptDismissed: StateFlow<Boolean> = _liveUpdatePromptDismissed.asStateFlow()
 
     private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(null)
     override val userLocation: StateFlow<Pair<Double, Double>?> = _userLocation.asStateFlow()
@@ -182,6 +191,17 @@ class TransitRepository(
     override fun setRailMode(mode: RailMode) {
         _railMode.value = mode
         writer.enqueue { store.saveRailMode(mode.name) }
+    }
+
+    override fun setAppColorPalette(palette: AppColorPalette) {
+        _appColorPalette.value = palette
+        writer.enqueue { store.saveAppColorPalette(palette.name) }
+    }
+
+    override fun dismissLiveUpdatePrompt() {
+        if (_liveUpdatePromptDismissed.value) return
+        _liveUpdatePromptDismissed.value = true
+        writer.enqueue { store.saveLiveUpdatePromptDismissed(true) }
     }
 
     override fun dismissFontScalePrompt() {

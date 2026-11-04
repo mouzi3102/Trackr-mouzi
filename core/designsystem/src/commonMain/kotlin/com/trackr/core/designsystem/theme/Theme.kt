@@ -15,10 +15,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.UiMode
 
 /**
- * 应用主题（设计稿 v3，重构计划 §8.3）。v3 蓝固定主色，不用动态取色。
+ * 应用主题（设计稿 v3，重构计划 §8.3）。
+ *
+ * [palette] 换品牌色（「我的 → 显示 → 应用配色」，存在 `SettingsRepository.appColorPalette`）；
+ * 中立色、公交语义色（到站绿 / 预警橙 / 步行灰）和 error 跨配色不变。
+ * [UiMode.Elder] 用自己那套高对比 Token，**不看** [palette]。
  *
  * 组件只读 `MaterialTheme.colorScheme/typography/shapes`、[TrackrTheme.colors]、[TrackrTheme.dimens]，
  * 不判断 [UiMode]；模式只在这里换 Token。
@@ -27,11 +32,12 @@ import com.trackr.core.model.UiMode
 @Composable
 fun TrackrTheme(
     uiMode: UiMode = UiMode.Standard,
+    palette: AppColorPalette = AppColorPalette.BLUE,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     val tokens = tokensFor(uiMode)
-    val colorScheme = tokens.colorScheme(darkTheme)
+    val colorScheme = tokens.colorScheme(darkTheme, palette)
     val trackrColors = tokens.colors(darkTheme)
     val busColors = remember(trackrColors, colorScheme) { legacyBusColors(trackrColors, colorScheme) }
     val extendedColors = remember(trackrColors, colorScheme) { legacyExtendedColors(trackrColors, colorScheme) }
@@ -75,7 +81,8 @@ object TrackrTheme {
 
 /** 一种界面模式的全部 Token。 */
 internal interface ThemeTokens {
-    fun colorScheme(darkTheme: Boolean): ColorScheme
+    /** [palette] 只换品牌槽位；长辈版 Token 用自己那套高对比色，忽略它 */
+    fun colorScheme(darkTheme: Boolean, palette: AppColorPalette = AppColorPalette.BLUE): ColorScheme
     fun colors(darkTheme: Boolean): TrackrColors
     val typography: Typography
     val trackrTypography: TrackrTypography
@@ -86,7 +93,8 @@ internal interface ThemeTokens {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal object StandardTokens : ThemeTokens {
-    override fun colorScheme(darkTheme: Boolean) = if (darkTheme) DarkColorScheme else LightColorScheme
+    override fun colorScheme(darkTheme: Boolean, palette: AppColorPalette) =
+        paletteColorScheme(palette, darkTheme)
     override fun colors(darkTheme: Boolean) = if (darkTheme) DarkTrackrColors else LightTrackrColors
     override val typography = StandardTypography
     override val trackrTypography = StandardTrackrTypography

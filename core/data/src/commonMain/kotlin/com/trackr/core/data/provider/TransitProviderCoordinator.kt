@@ -18,17 +18,23 @@ import com.trackr.core.network.remote.mygolbs.MygolbsIds
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
-/** 数据源模式对应的数据源 */
+/**
+ * 数据源模式对应的首选数据源。
+ * [EngineMode.AUTO] 没有「单一」数据源：这里映射到它的首选源（车来了），
+ * 真正的两源回落在下面各 `mode == EngineMode.AUTO` 分支里做。
+ */
 val EngineMode.dataSource: DataSourceType
     get() = when (this) {
         EngineMode.CHELAILE -> DataSourceType.CHELAILE
         EngineMode.MYGOLBS -> DataSourceType.MYGOLBS
+        EngineMode.AUTO -> DataSourceType.CHELAILE
     }
 
 /**
- * 实时公交数据源分发协调器（D1：数据源二选一，不做聚合）
+ * 实时公交数据源分发协调器（D1：数据源二选一 + [EngineMode.AUTO] 自动选源）
  *
- * 搜索、附近站、站点详情按当前数据源（[EngineMode]）选一个 Provider；线路详情、时刻表按线路自带的来源或 id 前缀选，
+ * 搜索、附近站、站点详情按当前数据源（[EngineMode]）选一个 Provider；[EngineMode.AUTO] 先用车来了，
+ * 车来了给不出有效结果（空 / 异常）再回落掌上公交；线路详情、时刻表按线路自带的来源或 id 前缀选，
  * 认不出来才用当前数据源。城市列表仍合并两家（掌上公交编码要补到车来了城市上）。
  */
 class TransitProviderCoordinator(
@@ -169,7 +175,8 @@ class TransitProviderCoordinator(
     }
 
     /**
-     * 获取周边站点：根据 EngineMode 单源路由至支持位置雷达能力的 Provider
+     * 获取周边站点：按 EngineMode 单源路由到支持位置雷达的 Provider；
+     * [EngineMode.AUTO] 先车来了，结果为空再从掌上公交要一次（掌上公交没有雷达实现时保持原行为：空列表）
      */
     suspend fun getNearbyStops(
         city: TransitCity,
@@ -178,17 +185,29 @@ class TransitProviderCoordinator(
         limit: Int = 4,
         mode: EngineMode = EngineMode.CHELAILE
     ): List<NearbyStop> {
-        val targetProvider = providers[mode.dataSource]
+        val first = if (mode == EngineMode.MYGOLBS) providers[DataSourceType.MYGOLBS]
+        else providers[DataSourceType.CHELAILE]
+        val result = nearbyStopsFrom(first, city, wgsLat, wgsLng, limit)
+        if (result.isNotEmpty() || mode != EngineMode.AUTO) return result
+        return nearbyStopsFrom(providers[DataSourceType.MYGOLBS], city, wgsLat, wgsLng, limit)
+    }
 
-        if (targetProvider != null && targetProvider.supportsLocationRadar()) {
-            return runCatching { targetProvider.getNearbyStops(city, wgsLat, wgsLng, limit) }.getOrDefault(emptyList())
-        }
-
-        return emptyList()
+    /** 只认支持位置雷达的 Provider，其它（含 null）一律空列表——和原来单源路由的口径一致 */
+    private suspend fun nearbyStopsFrom(
+        provider: ITransitProvider?,
+        city: TransitCity,
+        wgsLat: Double,
+        wgsLng: Double,
+        limit: Int
+    ): List<NearbyStop> {
+        if (provider == null || !provider.supportsLocationRadar()) return emptyList()
+        return runCatching { provider.getNearbyStops(city, wgsLat, wgsLng, limit) }.getOrDefault(emptyList())
     }
 
     /**
-     * 搜索：只查当前数据源，去掉地铁线路和纯地铁站，线路按名字自然排序
+     * 搜索：单源模式只查当前数据源；[EngineMode.AUTO] 两家并发查，车来了有线路就整段用车来了，否则用掌上公交
+     * （两家的线路 id / 站点 id 互不通用，所以不合并列表，只整段选一家）。
+     * 结果去掉地铁线路和纯地铁站，线路按名字自然排序
      */
     suspend fun search(
         city: TransitCity,
@@ -197,8 +216,24 @@ class TransitProviderCoordinator(
         userLat: Double? = null,
         userLng: Double? = null
     ): TransitSearchResult {
-        val raw = providers[mode.dataSource]?.let {
-            runCatching { it.search(city, keyword, userLat, userLng) }.getOrNull()
+        val raw = if (mode == EngineMode.AUTO) {
+            val chelaileProvider = providers[DataSourceType.CHELAILE]
+            val mygolbsProvider = providers[DataSourceType.MYGOLBS]
+            val (fromChelaile, fromMygolbs) = coroutineScope {
+                val chelaile = async {
+                    runCatching { chelaileProvider?.search(city, keyword, userLat, userLng) }.getOrNull()
+                }
+                val mygolbs = async {
+                    runCatching { mygolbsProvider?.search(city, keyword, userLat, userLng) }.getOrNull()
+                }
+                chelaile.await() to mygolbs.await()
+            }
+            // 线路是搜索的主结果：车来了有线路就用车来了，否则落到掌上公交
+            fromChelaile?.takeIf { !it.lines.isNullOrEmpty() } ?: fromMygolbs
+        } else {
+            providers[mode.dataSource]?.let {
+                runCatching { it.search(city, keyword, userLat, userLng) }.getOrNull()
+            }
         }
         // 第三方源没有地铁的在途实时数据，地铁线路和纯地铁站不展示
         val lines = raw?.lines.orEmpty()
@@ -209,7 +244,8 @@ class TransitProviderCoordinator(
     }
 
     /**
-     * 站点详情：根据 EngineMode 或请求显式特征精准单源路由
+     * 站点详情：请求自带掌上公交特征（或车来了明确不支持这个站）时固定走掌上公交；
+     * 其余按 EngineMode 选源，[EngineMode.AUTO] 先车来了、空了再回落掌上公交
      */
     suspend fun getStopDetail(
         city: TransitCity,
@@ -226,14 +262,15 @@ class TransitProviderCoordinator(
             else -> mode == EngineMode.MYGOLBS
         }
 
-        return if (isExplicitMygolbs) {
-            mygolbsProvider?.getStopDetail(city, request).orEmpty()
-        } else {
-            chelaileProvider?.getStopDetail(city, request).orEmpty()
+        if (isExplicitMygolbs) {
+            return mygolbsProvider?.getStopDetail(city, request).orEmpty()
         }
+        val fromChelaile = chelaileProvider?.getStopDetail(city, request).orEmpty()
+        if (fromChelaile.isNotEmpty() || mode != EngineMode.AUTO) return fromChelaile
+        return mygolbsProvider?.getStopDetail(city, request).orEmpty()
     }
 
-    /** 认不出线路来源时用的 Provider：当前数据源，没有就随便一个 */
+    /** 认不出线路来源时用的 Provider：当前数据源（[EngineMode.AUTO] 即首选的车来了），没有就随便一个 */
     private fun fallbackProvider(mode: EngineMode): ITransitProvider? =
         providers[mode.dataSource] ?: providers.values.firstOrNull()
 

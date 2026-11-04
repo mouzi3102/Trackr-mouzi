@@ -12,12 +12,16 @@ enum class DataSourceType(val displayName: String) {
 }
 
 /**
- * 引擎运行模式：车来了 / 掌上公交（独立单源模式）
+ * 引擎运行模式：车来了 / 掌上公交（单源），或 [AUTO] 自动选源。
+ *
+ * [AUTO] 首选车来了，车来了给不出结果时回落掌上公交（城市两家都合并，见 `TransitProviderCoordinator`）。
+ * 新值加在最后：备份和 DataStore 都按 `name` 存，老设备上认不出 [AUTO] 会回落车来了。
  */
 @Serializable
 enum class EngineMode(val displayName: String, val shortLabel: String) {
     CHELAILE("车来了", "车来了"),
-    MYGOLBS("掌上公交", "掌上公交")
+    MYGOLBS("掌上公交", "掌上公交"),
+    AUTO("自动", "自动")
 }
 
 /**

@@ -44,7 +44,9 @@ class RoomDataStoreTransitStore(
             alertThresholdStops = prefs[SettingsKeys.ALERT_THRESHOLD_STOPS],
             uiMode = prefs[SettingsKeys.UI_MODE],
             railMode = prefs[SettingsKeys.RAIL_MODE],
+            appColorPalette = prefs[SettingsKeys.APP_COLOR_PALETTE],
             fontScalePromptDismissed = prefs[SettingsKeys.FONT_SCALE_PROMPT_DISMISSED],
+            liveUpdatePromptDismissed = prefs[SettingsKeys.LIVE_UPDATE_PROMPT_DISMISSED],
             searchHistory = db.searchHistory().getAll().map { it.query },
             citySearchHistory = prefs[SettingsKeys.CITY_SEARCH_HISTORY_JSON]?.let { decodeStringList(it) } ?: emptyList()
         )
@@ -84,6 +86,14 @@ class RoomDataStoreTransitStore(
 
     override suspend fun saveRailMode(name: String) {
         settings.edit { it[SettingsKeys.RAIL_MODE] = name }
+    }
+
+    override suspend fun saveAppColorPalette(name: String) {
+        settings.edit { it[SettingsKeys.APP_COLOR_PALETTE] = name }
+    }
+
+    override suspend fun saveLiveUpdatePromptDismissed(dismissed: Boolean) {
+        settings.edit { it[SettingsKeys.LIVE_UPDATE_PROMPT_DISMISSED] = dismissed }
     }
 
     override suspend fun saveFontScalePromptDismissed(dismissed: Boolean) {

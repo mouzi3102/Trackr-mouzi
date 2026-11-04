@@ -63,6 +63,8 @@ data class BusHomeUiState(
             val baseList = when (engineMode) {
                 EngineMode.MYGOLBS -> cities.filter { !it.mygolbsCityCode.isNullOrBlank() }
                 EngineMode.CHELAILE -> cities.filter { it.cityId.isNotBlank() }
+                // 自动：两家支持的城市都能选（查得到哪家由 Coordinator 按回落顺序决定）
+                EngineMode.AUTO -> cities.filter { it.cityId.isNotBlank() || !it.mygolbsCityCode.isNullOrBlank() }
             }
             return CityCatalogSearch.filter(baseList, citySearchQuery)
         }

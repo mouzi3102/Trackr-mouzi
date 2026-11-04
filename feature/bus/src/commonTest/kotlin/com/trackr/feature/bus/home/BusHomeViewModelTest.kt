@@ -282,6 +282,11 @@ class BusHomeViewModelTest {
 
         viewModel.toggleEngineMode()
         testScheduler.runCurrent()
+        assertEquals(EngineMode.AUTO, viewModel.uiState.value.engineMode)
+
+        // 三态循环：车来了 → 掌上公交 → 自动 → 车来了
+        viewModel.toggleEngineMode()
+        testScheduler.runCurrent()
         assertEquals(EngineMode.CHELAILE, viewModel.uiState.value.engineMode)
 
         viewModel.setEngineMode(EngineMode.MYGOLBS)

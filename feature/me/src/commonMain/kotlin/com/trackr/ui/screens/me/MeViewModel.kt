@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.trackr.core.data.repository.AmapKeyRepository
 import com.trackr.core.data.repository.SettingsRepository
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.ScheduledReminder
 import com.trackr.core.model.TransitCodeProvider
@@ -42,6 +43,7 @@ data class MeUiState(
     val versionName: String? = null,
     val elderMode: Boolean = false,
     val railMode: RailMode = RailMode.Horizontal,
+    val colorPalette: AppColorPalette = AppColorPalette.BLUE,
     val userMessages: List<UserMessage> = emptyList()
 )
 
@@ -56,6 +58,7 @@ sealed interface MeEvent {
     data object OpenLiveUpdateSettings : MeEvent
     data class SetElderMode(val enabled: Boolean) : MeEvent
     data class SetRailMode(val mode: RailMode) : MeEvent
+    data class SetColorPalette(val palette: AppColorPalette) : MeEvent
     data class MessageShown(val id: Long) : MeEvent
 
     data class OpenReminder(val id: String) : MeEvent
@@ -87,6 +90,7 @@ class MeViewModel(
     ) { engine, code, stops, live, lock -> SettingsPart(engine, code, stops, live, lock) }
         .combine(settings.uiMode) { part, mode -> part.copy(elderMode = mode == UiMode.Elder) }
         .combine(settings.railMode) { part, mode -> part.copy(railMode = mode) }
+        .combine(settings.appColorPalette) { part, palette -> part.copy(colorPalette = palette) }
 
     private val mapKeyStatus = combine(amapKeys.hasMapKey, amapKeys.canShowMap) { has, canShow ->
         amapKeyStatusText(has, canShow)
@@ -111,7 +115,8 @@ class MeViewModel(
                 settings.isLiveNotificationEnabled.value,
                 settings.showOnLockScreen.value,
                 settings.uiMode.value == UiMode.Elder,
-                settings.railMode.value
+                settings.railMode.value,
+                settings.appColorPalette.value
             ),
             reminderRepository.reminders.value,
             liveUpdateStatus.value,
@@ -123,6 +128,7 @@ class MeViewModel(
     fun onEvent(event: MeEvent) {
         when (event) {
             is MeEvent.SetEngineMode -> settings.setEngineMode(event.mode)
+            is MeEvent.SetColorPalette -> settings.setAppColorPalette(event.palette)
             is MeEvent.SetTransitCode -> viewModelScope.launch {
                 settings.setPreferredTransitCodeProvider(event.provider)
             }
@@ -164,6 +170,7 @@ class MeViewModel(
         showOnLockScreen = part.showOnLockScreen,
         elderMode = part.elderMode,
         railMode = part.railMode,
+        colorPalette = part.colorPalette,
         // 和原来一样：实时通知关着时不显示胶囊权限
         liveUpdate = liveUpdate?.takeIf { part.liveNotification },
         amapKeyStatus = keyStatus,
@@ -178,6 +185,7 @@ class MeViewModel(
         val liveNotification: Boolean,
         val showOnLockScreen: Boolean,
         val elderMode: Boolean = false,
-        val railMode: RailMode = RailMode.Horizontal
+        val railMode: RailMode = RailMode.Horizontal,
+        val colorPalette: AppColorPalette = AppColorPalette.BLUE
     )
 }

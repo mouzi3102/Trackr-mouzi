@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +42,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -105,6 +108,7 @@ fun StopDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = { StopDetailTopBar(state = state, watch = watch, onEvent = onEvent) },
         bottomBar = { StopDetailBottomBar(state = state, watch = watch, onEvent = onEvent) },
         snackbarHost = messageHost
@@ -178,7 +182,7 @@ private fun StopDetailTopBar(state: StopDetailUiState, watch: WatchTogetherUi?, 
             Column {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -203,7 +207,11 @@ private fun StopDetailTopBar(state: StopDetailUiState, watch: WatchTogetherUi?, 
                     Icon(TrackrIcons.Back, contentDescription = stringResource(Res.string.action_back))
                 }
             }
-        }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     )
 }
 

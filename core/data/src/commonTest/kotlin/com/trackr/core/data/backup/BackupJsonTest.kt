@@ -1,5 +1,8 @@
 package com.trackr.core.data.backup
 
+import com.trackr.core.model.AppColorPalette
+import com.trackr.core.model.RailMode
+import com.trackr.core.model.ScheduledReminder
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItemRecord
@@ -15,6 +18,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -50,6 +54,21 @@ class BackupJsonTest {
         )
     )
 
+    private fun reminder(id: String) = ScheduledReminder(
+        id = id,
+        hour = 7,
+        minute = 30,
+        cityId = "021",
+        cityName = "上海",
+        lineId = "line_$id",
+        lineName = "$id 路",
+        direction = 1,
+        endStopName = "终点站",
+        targetStopId = "st_$id",
+        targetStopName = "上车站",
+        targetOrder = 2
+    )
+
     private inline fun <reified T : Any> element(value: T) =
         backupJson.parseToJsonElement(backupJson.encodeToString(value))
 
@@ -58,6 +77,80 @@ class BackupJsonTest {
         val original = samplePayload()
         val restored = parseBackupJson(encodeBackupJson(original))
         assertEquals(original, restored)
+    }
+
+    @Test
+    fun firstVersionFileWithoutNewSectionsStillParses() {
+        // 0.1.4 及以前生成的备份：没有 railMode / appColorPalette / citySearchHistory / reminders
+        val legacy = """
+            {
+              "schemaVersion": 1,
+              "app": "Trackr",
+              "createdAtMillis": 1793806212000,
+              "settings": { "uiMode": "Standard", "engineMode": "CHELAILE", "nearbyStopsCount": 4 },
+              "searchHistory": ["人民广场"],
+              "favorites": { "groups": [], "stops": [], "routes": [], "items": [] }
+            }
+        """.trimIndent()
+        val payload = parseBackupJson(legacy)
+        assertEquals(4, payload.settings?.nearbyStopsCount)
+        assertEquals(null, payload.settings?.railMode)
+        assertEquals(null, payload.settings?.appColorPalette)
+        assertEquals(null, payload.citySearchHistory)
+        assertEquals(null, payload.reminders)
+        val plan = planRestore(payload, decodeBackupFavorites(payload.favorites), decodeBackupReminders(payload.reminders))
+        assertTrue(plan.replaceSettings && plan.replaceSearchHistory)
+        assertFalse(plan.replaceCitySearchHistory)
+        assertFalse(plan.replaceReminders)
+        // 老文件带着收藏段（空的），所以 FAVORITES 仍在计划里；新增的两段不在
+        assertEquals(
+            setOf(RestoredSection.SETTINGS, RestoredSection.SEARCH_HISTORY, RestoredSection.FAVORITES),
+            appliedSectionsOf(plan)
+        )
+    }
+
+    @Test
+    fun newSectionsRoundTripAndPlan() {
+        val payload = samplePayload().copy(
+            settings = samplePayload().settings!!.copy(
+                railMode = RailMode.Vertical.name,
+                appColorPalette = AppColorPalette.PURPLE.name
+            ),
+            citySearchHistory = listOf("玉林", "上海"),
+            reminders = listOf(element(reminder("r1")))
+        )
+        val restored = parseBackupJson(encodeBackupJson(payload))
+        assertEquals(payload, restored)
+        val plan = planRestore(restored, decodeBackupFavorites(restored.favorites), decodeBackupReminders(restored.reminders))
+        assertTrue(plan.replaceCitySearchHistory && plan.replaceReminders)
+        assertEquals(2, plan.citySearchHistoryCount)
+        assertEquals(1, plan.reminderCount)
+        assertEquals(
+            setOf(
+                RestoredSection.SETTINGS,
+                RestoredSection.SEARCH_HISTORY,
+                RestoredSection.CITY_SEARCH_HISTORY,
+                RestoredSection.FAVORITES,
+                RestoredSection.REMINDERS
+            ),
+            appliedSectionsOf(plan)
+        )
+    }
+
+    @Test
+    fun malformedReminderEntriesAreSkippedNotFatal() {
+        val decoded = decodeBackupReminders(
+            listOf(
+                element(reminder("ok1").copy(hour = 8)),
+                element(reminder("ok1").copy(hour = 9)), // 同 id 只留第一条
+                buildJsonObject { put("id", ""); put("hour", 1); put("minute", 1); put("cityId", "021") },
+                JsonPrimitive("not-a-reminder")
+            )
+        )
+        assertEquals(listOf("ok1"), decoded.items.map { it.id })
+        assertEquals(8, decoded.items.first().hour)
+        assertEquals(2, decoded.skipped)
+        assertEquals(0, decodeBackupReminders(null).items.size)
     }
 
     @Test

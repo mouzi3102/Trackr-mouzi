@@ -40,7 +40,11 @@ data class TransitLocalSnapshot(
     val uiMode: String? = null,
     /** 走向条样式（`RailMode` 的名字）；没存过为 null，按横排 */
     val railMode: String? = null,
+    /** 应用配色（`AppColorPalette` 的名字）；没存过为 null，按蓝 */
+    val appColorPalette: String? = null,
     val fontScalePromptDismissed: Boolean? = null,
+    /** 「开启流体云 / 实时活动」启动引导点过了；没存过为 null = 还没点过 */
+    val liveUpdatePromptDismissed: Boolean? = null,
     val favorites: List<FavoriteStationLine> = emptyList(),
     val searchHistory: List<String> = emptyList(),
     /** 城市选择器里搜过的词（和 [searchHistory] 同款语义，另一份记录） */
@@ -59,6 +63,11 @@ interface TransitLocalStore {
     suspend fun saveAlertThresholdStops(stops: Int)
     suspend fun saveUiMode(name: String)
     suspend fun saveRailMode(name: String)
+
+    /** 应用配色（`AppColorPalette` 的名字） */
+    suspend fun saveAppColorPalette(name: String)
+
+    suspend fun saveLiveUpdatePromptDismissed(dismissed: Boolean)
     suspend fun saveFontScalePromptDismissed(dismissed: Boolean)
     suspend fun saveSearchHistory(list: List<String>)
     suspend fun clearSearchHistory()

@@ -101,10 +101,13 @@ fun LineDetailRoute(
             onDismissRequest = { pendingGuide = null },
             onContinueWithoutSettings = {
                 pendingGuide = null
+                // 「暂不开启」要记住：以前每次点追踪都重新弹一遍
+                liveUpdateGate.markHandled(guide)
                 viewModel.startTrackingSelectedStop()
             },
             onGoToSettings = {
                 pendingGuide = null
+                liveUpdateGate.markHandled(guide)
                 liveUpdateGate.openSettings(guide)
                 viewModel.startTrackingSelectedStop()
             },

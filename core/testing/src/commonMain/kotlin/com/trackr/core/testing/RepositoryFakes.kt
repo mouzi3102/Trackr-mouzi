@@ -11,6 +11,7 @@ import com.trackr.core.domain.tracking.LocationCadence
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusLineDirection
 import com.trackr.core.model.DataSourceType
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.EngineMode
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
@@ -80,8 +81,14 @@ class FakeSettingsRepository(
     private val _railMode = MutableStateFlow(RailMode.Horizontal)
     override val railMode: StateFlow<RailMode> = _railMode.asStateFlow()
 
+    private val _appColorPalette = MutableStateFlow(AppColorPalette.BLUE)
+    override val appColorPalette: StateFlow<AppColorPalette> = _appColorPalette.asStateFlow()
+
     private val _fontScalePromptDismissed = MutableStateFlow(false)
     override val fontScalePromptDismissed: StateFlow<Boolean> = _fontScalePromptDismissed.asStateFlow()
+
+    private val _liveUpdatePromptDismissed = MutableStateFlow(false)
+    override val liveUpdatePromptDismissed: StateFlow<Boolean> = _liveUpdatePromptDismissed.asStateFlow()
 
     override fun setUiMode(mode: UiMode) {
         _uiMode.value = mode
@@ -91,8 +98,16 @@ class FakeSettingsRepository(
         _railMode.value = mode
     }
 
+    override fun setAppColorPalette(palette: AppColorPalette) {
+        _appColorPalette.value = palette
+    }
+
     override fun dismissFontScalePrompt() {
         _fontScalePromptDismissed.value = true
+    }
+
+    override fun dismissLiveUpdatePrompt() {
+        _liveUpdatePromptDismissed.value = true
     }
 
     override fun setEngineMode(mode: EngineMode) {

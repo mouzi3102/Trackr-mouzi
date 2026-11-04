@@ -31,11 +31,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,7 +65,7 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * WebDAV 备份子页（第 39 步）：连接表单 + 测试连接 / 立即备份 / 刷新列表，
- * 远端文件点一条走「下载 → 确认替换 → 恢复」，每条可删除；全部文案来自模块 composeResources。
+ * 远端文件每条都有「恢复」（下载 → 确认合并 → 恢复）和「删除」按钮；全部文案来自模块 composeResources。
  */
 @Composable
 fun WebDavBackupScreen(
@@ -65,6 +73,16 @@ fun WebDavBackupScreen(
     onEvent: (WebDavBackupEvent) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 「从备份恢复」的文件选择弹窗。列表还没拉到时点它先去读远端目录，读到之后自动弹出来（只用点一次）
+    var showRestorePicker by rememberSaveable { mutableStateOf(false) }
+    var pickAfterRefresh by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.files, state.busy, state.filesLoaded) {
+        if (pickAfterRefresh && !state.busy && state.filesLoaded) {
+            pickAfterRefresh = false
+            if (state.files.isNotEmpty()) showRestorePicker = true
+        }
+    }
+
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -88,13 +106,16 @@ fun WebDavBackupScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
             )
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("webdav_list"),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 top = innerPadding.calculateTopPadding() + 8.dp,
@@ -220,16 +241,36 @@ fun WebDavBackupScreen(
                 }
             }
 
-            item(key = "backup_now") {
-                Button(
-                    onClick = { onEvent(WebDavBackupEvent.BackupNow) },
-                    enabled = !state.busy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("btn_webdav_backup_now")
-                ) {
-                    Text(stringResource(MeRes.string.me_webdav_backup_now))
+            item(key = "backup_and_restore") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { onEvent(WebDavBackupEvent.BackupNow) },
+                        enabled = !state.busy,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("btn_webdav_backup_now")
+                    ) {
+                        Text(stringResource(MeRes.string.me_webdav_backup_now))
+                    }
+                    // 恢复是常驻入口：远端列表没拉的时候点它先去读目录，读到了直接弹文件选择
+                    OutlinedButton(
+                        onClick = {
+                            if (state.files.isEmpty()) {
+                                pickAfterRefresh = true
+                                onEvent(WebDavBackupEvent.RefreshList)
+                            } else {
+                                showRestorePicker = true
+                            }
+                        },
+                        enabled = !state.busy,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("btn_webdav_restore")
+                    ) {
+                        Text(stringResource(MeRes.string.me_webdav_restore_entry))
+                    }
                 }
             }
 
@@ -266,6 +307,17 @@ fun WebDavBackupScreen(
         }
     }
 
+    if (showRestorePicker && state.files.isNotEmpty()) {
+        RestoreFilePickerDialog(
+            files = state.files,
+            onPick = { file ->
+                showRestorePicker = false
+                onEvent(WebDavBackupEvent.OpenRestore(file))
+            },
+            onDismiss = { showRestorePicker = false }
+        )
+    }
+
     val pending = state.pendingRestore
     if (pending != null) {
         RestoreConfirmDialog(
@@ -274,6 +326,54 @@ fun WebDavBackupScreen(
             onDismiss = { onEvent(WebDavBackupEvent.CancelRestore) }
         )
     }
+}
+
+/** 选一份远端备份来恢复：列出文件名 + 服务器给的修改时间，点一条走「下载 → 确认 → 写入本机」 */
+@Composable
+private fun RestoreFilePickerDialog(
+    files: List<RemoteBackupFile>,
+    onPick: (RemoteBackupFile) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(MeRes.string.me_webdav_restore_pick_title)) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = stringResource(MeRes.string.me_webdav_restore_pick_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                files.forEach { file ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onPick(file) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("restore_pick_${file.name}")
+                    ) {
+                        Text(text = file.name, style = MaterialTheme.typography.bodyMedium)
+                        val modified = file.lastModified
+                        if (modified != null) {
+                            Text(
+                                text = modified,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
+        }
+    )
 }
 
 @Composable
@@ -289,7 +389,6 @@ private fun RemoteFileRow(
     ) {
         Row(
             modifier = Modifier
-                .clickable(enabled = !busy, onClick = onOpen)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
                 .testTag("row_remote_${file.name}"),
             verticalAlignment = Alignment.CenterVertically
@@ -304,6 +403,14 @@ private fun RemoteFileRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            // 「恢复」「删除」都是显式按钮：整行点着恢复不好发现，误触也不好撤销
+            TextButton(
+                onClick = onOpen,
+                enabled = !busy,
+                modifier = Modifier.testTag("btn_restore_${file.name}")
+            ) {
+                Text(stringResource(MeRes.string.me_webdav_restore))
             }
             TextButton(
                 onClick = onDelete,
@@ -346,11 +453,15 @@ private fun RestoreConfirmDialog(
                     if (plan.replaceSearchHistory) {
                         add(stringResource(MeRes.string.me_webdav_replace_history, plan.searchHistoryCount))
                     }
+                    if (plan.replaceCitySearchHistory) {
+                        add(stringResource(MeRes.string.me_webdav_replace_city_history, plan.citySearchHistoryCount))
+                    }
                     if (plan.replaceFavorites) {
-                        add(stringResource(MeRes.string.me_webdav_replace_favorites))
-                        add(stringResource(MeRes.string.me_webdav_contains_stops, plan.stopCount))
-                        add(stringResource(MeRes.string.me_webdav_contains_routes, plan.routeCount))
+                        add(stringResource(MeRes.string.me_webdav_replace_favorites, plan.stopCount, plan.routeCount))
                         add(stringResource(MeRes.string.me_webdav_contains_groups, plan.groupCount))
+                    }
+                    if (plan.replaceReminders) {
+                        add(stringResource(MeRes.string.me_webdav_restore_reminders, plan.reminderCount))
                     }
                     if (plan.skippedFavorites > 0) {
                         add(

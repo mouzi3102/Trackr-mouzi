@@ -12,6 +12,7 @@ import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteStationLine
 import com.trackr.core.model.LineTimetable
 import com.trackr.core.model.NearbyStop
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.RailMode
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitCodeProvider
@@ -63,8 +64,14 @@ interface SettingsRepository {
     /** 线路详情走向条样式；没存过或认不出按 [RailMode.Horizontal] */
     val railMode: StateFlow<RailMode>
 
+    /** 应用配色；没存过或认不出按 [AppColorPalette.BLUE]（就是原来的主题）。长辈版用自己那套 Token，不看这一项 */
+    val appColorPalette: StateFlow<AppColorPalette>
+
     /** 系统字体放大时的「试试长辈版」提示已经点过（打开或先不用），之后不再提示 */
     val fontScalePromptDismissed: StateFlow<Boolean>
+
+    /** 「开启流体云 / 实时活动」的启动引导点过了（去开启或先不用都算），之后不再弹 */
+    val liveUpdatePromptDismissed: StateFlow<Boolean>
 
     fun setEngineMode(mode: EngineMode)
     fun setNearbyStopsCount(count: Int)
@@ -75,7 +82,11 @@ interface SettingsRepository {
     fun setAlertThresholdStops(stops: Int)
     fun setUiMode(mode: UiMode)
     fun setRailMode(mode: RailMode)
+    fun setAppColorPalette(palette: AppColorPalette)
     fun dismissFontScalePrompt()
+
+    /** 单向置 true（和 [dismissFontScalePrompt] 一样，没有反向） */
+    fun dismissLiveUpdatePrompt()
     suspend fun selectCity(city: TransitCity)
     suspend fun setPreferredTransitCodeProvider(provider: TransitCodeProvider)
 }

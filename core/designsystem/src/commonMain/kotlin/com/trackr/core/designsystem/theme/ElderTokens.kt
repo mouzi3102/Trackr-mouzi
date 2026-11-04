@@ -146,7 +146,7 @@ internal val ElderDimens = StandardDimens.copy(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal object ElderTokens : ThemeTokens {
-    override fun colorScheme(darkTheme: Boolean) = if (darkTheme) ElderDarkColorScheme else ElderLightColorScheme
+    override fun colorScheme(darkTheme: Boolean, palette: com.trackr.core.model.AppColorPalette) = if (darkTheme) ElderDarkColorScheme else ElderLightColorScheme
     override fun colors(darkTheme: Boolean) = if (darkTheme) ElderDarkTrackrColors else ElderLightTrackrColors
     override val typography = ElderTypography
     override val trackrTypography = ElderTrackrTypography

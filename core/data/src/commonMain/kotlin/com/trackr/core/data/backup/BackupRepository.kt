@@ -1,13 +1,18 @@
 package com.trackr.core.data.backup
 
+import com.trackr.core.data.repository.CitySearchHistoryRepository
 import com.trackr.core.data.repository.FavoritesRepository
 import com.trackr.core.data.repository.SearchHistoryRepository
 import com.trackr.core.data.repository.SettingsRepository
 import com.trackr.core.model.EngineMode
+import com.trackr.core.model.AppColorPalette
 import com.trackr.core.model.FavoriteItem
+import com.trackr.core.model.FavoriteItemRecord
 import com.trackr.core.model.FavoriteItemType
+import com.trackr.core.model.RailMode
 import com.trackr.core.model.TransitCodeProvider
 import com.trackr.core.model.UiMode
+import com.trackr.data.repository.IScheduledReminderRepository
 import com.trackr.core.network.remote.webdav.joinWebDavUrl
 import com.trackr.core.network.remote.webdav.parseWebDavPropfind
 import com.trackr.core.network.remote.webdav.webDavBasicAuth
@@ -55,19 +60,30 @@ data class RemoteBackupFile(
     val lastModified: String?
 )
 
-/** 下载并解析成功的一份备份：原始 payload、宽容解码后的收藏段、恢复计划 */
+/** 下载并解析成功的一份备份：原始 payload、宽容解码后的收藏段 / 提醒段、恢复计划 */
 data class ParsedBackup(
     val fileName: String,
     val payload: TrackrBackupPayload,
     val decodedFavorites: DecodedFavorites,
-    val plan: RestorePlan
+    val plan: RestorePlan,
+    val decodedReminders: DecodedReminders = DecodedReminders()
 )
 
 /** 一次恢复实际动了哪些段 */
-enum class RestoredSection { SETTINGS, SEARCH_HISTORY, FAVORITES }
+enum class RestoredSection { SETTINGS, SEARCH_HISTORY, CITY_SEARCH_HISTORY, FAVORITES, REMINDERS }
 
-/** [BackupRepository.applyRestore] 的结果：实际写回的段 */
-data class RestoreOutcome(val applied: Set<RestoredSection>)
+/**
+ * [BackupRepository.applyRestore] 的结果：实际写回的段 + 各段动了几条，给界面写「恢复完成」提示。
+ * 收藏和提醒是**合并**（只补本地没有的），所以报「新增/跳过」两个数；设置和搜索历史是整段写。
+ */
+data class RestoreOutcome(
+    val applied: Set<RestoredSection>,
+    /** 收藏里本地没有、这次新加进去的条数（车 + 路线） */
+    val addedFavorites: Int = 0,
+    /** 备份里已有同 id、保留本地那份没动的条数 */
+    val keptExistingFavorites: Int = 0,
+    val addedReminders: Int = 0
+)
 
 /** 纯函数：按 plan 决定要应用哪些段（applyRestore 与确认对话框共用；单测吃这个） */
 fun appliedSectionsOf(plan: RestorePlan): Set<RestoredSection> {
@@ -75,7 +91,9 @@ fun appliedSectionsOf(plan: RestorePlan): Set<RestoredSection> {
     return buildSet {
         if (plan.replaceSettings) add(RestoredSection.SETTINGS)
         if (plan.replaceSearchHistory) add(RestoredSection.SEARCH_HISTORY)
+        if (plan.replaceCitySearchHistory) add(RestoredSection.CITY_SEARCH_HISTORY)
         if (plan.replaceFavorites) add(RestoredSection.FAVORITES)
+        if (plan.replaceReminders) add(RestoredSection.REMINDERS)
     }
 }
 
@@ -109,13 +127,16 @@ class WebDavBackupFailure(
 }
 
 /**
- * 恢复策略（需求 §6；**整体替换**语义已在界面上向用户讲清）：
- * - 搜索历史：清空后按备份倒序逐条 `addSearchHistory`，去重与 20 条上限走仓库自身的规则；
- * - 收藏：先删光（分组、车、路线）、再按备份重建——公开接口只有 `createGroup`（新 id），所以分组的旧 id → 新 id
- *   逐份映射，合一顺序通过 `move` 落位，分组归属通过 `setGroup` 重放；
- * - 设置：只覆盖这份备份里出现的字段，且全部经 [SettingsRepository] 的现有 setter（越界值由 setter 自己夹取）。
+ * 恢复策略（需求 §6）：
+ * - 设置：只覆盖这份备份里出现的字段，全部经 [SettingsRepository] 的现有 setter（越界值由 setter 自己夹取）；
+ * - 搜索历史 / 城市搜索历史：整段替换（这两段本来就是「最近的在前」的辅助列表，替换不会让人丢东西）；
+ * - 收藏：**合并不替换**（同 c001apk 的 fav_cloud_sync：按 id 取并集）。本地已有同 id 的车 / 路线 / 分组保留本地那份，
+ *   备份里有、本地没有的才加进来，加在合一列表末尾并按备份顺序排；分组的旧 id 先映射到本地分组（同 id 或同名），
+ *   映射不到才新建。误恢复一份旧备份不会把本地新收藏删掉；
+ * - 定时提醒：同样按 id 合并，只补本地没有的（`saveReminder` 会顺带注册闹钟）。
  *
  * 数据源和 UI 用的是同一批仓库接口，不直接摸 DAO / DataStore（保持收藏合一索引、顺序上限这些规则的单一权威）。
+ * 城市搜索历史 / 提醒两个仓库是平台可选的（iOS 没绑提醒仓库），传不进来就跳过这两段，备份里也不带。
  */
 class DefaultBackupRepository(
     private val configRepository: WebDavConfigRepository,
@@ -123,7 +144,9 @@ class DefaultBackupRepository(
     private val settings: SettingsRepository,
     private val searchHistoryRepository: SearchHistoryRepository,
     private val favoritesRepository: FavoritesRepository,
-    private val nowMillis: () -> Long
+    private val nowMillis: () -> Long,
+    private val citySearchHistoryRepository: CitySearchHistoryRepository? = null,
+    private val reminderRepository: IScheduledReminderRepository? = null
 ) : BackupRepository {
 
     override suspend fun testConnection(password: String): Result<Unit> = attempt {
@@ -181,18 +204,50 @@ class DefaultBackupRepository(
         }
         val payload = withContext(Dispatchers.Default) { parseBackupJson(response.body) }
         val decoded = decodeBackupFavorites(payload.favorites)
-        ParsedBackup(fileName, payload, decoded, planRestore(payload, decoded))
+        val decodedReminders = decodeBackupReminders(payload.reminders)
+        ParsedBackup(
+            fileName = fileName,
+            payload = payload,
+            decodedFavorites = decoded,
+            plan = planRestore(payload, decoded, decodedReminders),
+            decodedReminders = decodedReminders
+        )
     }
 
     override suspend fun applyRestore(parsed: ParsedBackup): Result<RestoreOutcome> = attempt {
         if (parsed.plan.empty || parsed.payload.schemaVersion > BACKUP_SCHEMA_VERSION) {
             throw WebDavBackupFailure(WebDavBackupFailure.Kind.BAD_PAYLOAD)
         }
-        val applied = appliedSectionsOf(parsed.plan)
-        if (applied.contains(RestoredSection.SETTINGS)) applySettings(parsed.payload.settings!!)
-        if (applied.contains(RestoredSection.SEARCH_HISTORY)) applySearchHistory(parsed.payload.searchHistory.orEmpty())
-        if (applied.contains(RestoredSection.FAVORITES)) applyFavorites(parsed.decodedFavorites)
-        RestoreOutcome(applied)
+        // 平台没有这两个仓库时（iOS 没绑提醒仓库）整段跳过，不算失败
+        val applied = appliedSectionsOf(parsed.plan).filterTo(LinkedHashSet()) { section ->
+            when (section) {
+                RestoredSection.CITY_SEARCH_HISTORY -> citySearchHistoryRepository != null
+                RestoredSection.REMINDERS -> reminderRepository != null
+                else -> true
+            }
+        }
+        var addedFavorites = 0
+        var keptExisting = 0
+        var addedReminders = 0
+        if (RestoredSection.SETTINGS in applied) applySettings(parsed.payload.settings!!)
+        if (RestoredSection.SEARCH_HISTORY in applied) applySearchHistory(parsed.payload.searchHistory.orEmpty())
+        if (RestoredSection.CITY_SEARCH_HISTORY in applied) {
+            applyCitySearchHistory(parsed.payload.citySearchHistory.orEmpty())
+        }
+        if (RestoredSection.FAVORITES in applied) {
+            val merged = applyFavorites(parsed.decodedFavorites)
+            addedFavorites = merged.added
+            keptExisting = merged.keptExisting
+        }
+        if (RestoredSection.REMINDERS in applied) {
+            addedReminders = applyReminders(parsed.decodedReminders)
+        }
+        RestoreOutcome(
+            applied = applied,
+            addedFavorites = addedFavorites,
+            keptExistingFavorites = keptExisting,
+            addedReminders = addedReminders
+        )
     }
 
     override suspend fun deleteRemoteFile(fileName: String, password: String): Result<Unit> = attempt {
@@ -216,16 +271,28 @@ class DefaultBackupRepository(
             showOnLockScreen = settings.showOnLockScreen.value,
             alertThresholdStops = settings.alertThresholdStops.value,
             uiMode = settings.uiMode.value.name,
+            // 走向条与应用配色：旧备份没这两项 = null，恢复时不动
+            railMode = settings.railMode.value.name,
+            appColorPalette = settings.appColorPalette.value.name,
             fontScalePromptDismissed = settings.fontScalePromptDismissed.value
         ),
         searchHistory = searchHistoryRepository.searchHistory.value.toList(),
+        citySearchHistory = citySearchHistoryRepository?.citySearchHistory?.value?.toList(),
         favorites = FavoritesBackup(
             groups = favoritesRepository.favoriteGroups.value.map { it.asJsonElement() },
             stops = favoritesRepository.favorites.value.map { it.asJsonElement() },
             routes = favoritesRepository.routes.value.map { it.asJsonElement() },
-            items = favoritesRepository.favoriteItems.value.map { it.asJsonElement() }
-        )
+            // 合一索引按 [FavoriteItemRecord] 存：`FavoriteItem` 是没有序列化器的密封类型（只有 UI 用）
+            items = favoritesRepository.favoriteItems.value.map { it.record().asJsonElement() }
+        ),
+        reminders = reminderRepository?.reminders?.value?.map { it.asJsonElement() }
     )
+
+    /** 合一列表里的一条 → 可序列化的存储行 */
+    private fun FavoriteItem.record(): FavoriteItemRecord = when (this) {
+        is FavoriteItem.Stop -> FavoriteItemRecord(FavoriteItemType.STOP, stop.id, groupId, sortOrder)
+        is FavoriteItem.Route -> FavoriteItemRecord(FavoriteItemType.ROUTE, route.id, groupId, sortOrder)
+    }
 
     private suspend fun applySettings(snapshot: SettingsBackup) {
         snapshot.city?.let { settings.selectCity(it) }
@@ -242,6 +309,12 @@ class DefaultBackupRepository(
         snapshot.uiMode
             ?.let { name -> UiMode.entries.find { it.name == name } }
             ?.let { settings.setUiMode(it) }
+        snapshot.railMode
+            ?.let { name -> RailMode.entries.find { it.name == name } }
+            ?.let { settings.setRailMode(it) }
+        snapshot.appColorPalette
+            ?.let { name -> AppColorPalette.entries.find { it.name == name } }
+            ?.let { settings.setAppColorPalette(it) }
         // 「字体提示点过了」只能单向置 true（仓库没有反向 setter）
         if (snapshot.fontScalePromptDismissed == true) settings.dismissFontScalePrompt()
     }
@@ -252,43 +325,107 @@ class DefaultBackupRepository(
         history.asReversed().forEach { searchHistoryRepository.addSearchHistory(it) }
     }
 
-    private suspend fun applyFavorites(decoded: DecodedFavorites) {
-        val currentStops = favoritesRepository.favorites.value.map { it.id }
-        val currentRoutes = favoritesRepository.routes.value.map { it.id }
-        val currentGroups = favoritesRepository.favoriteGroups.value.map { it.id }
-        currentGroups.forEach { favoritesRepository.deleteGroup(it) }
-        currentStops.forEach { favoritesRepository.removeFavorite(it) }
-        currentRoutes.forEach { favoritesRepository.removeRoute(it) }
+    /** 城市搜索历史同款规则（仓库自己负责去重和 20 条上限） */
+    private suspend fun applyCitySearchHistory(history: List<String>) {
+        val repository = citySearchHistoryRepository ?: return
+        repository.clearCitySearchHistory()
+        history.asReversed().forEach { repository.addCitySearchHistory(it) }
+    }
 
+    /** 合并的结果：新加了几条、本地已有跳过了几条 */
+    private data class FavoritesMerge(val added: Int, val keptExisting: Int)
+
+    /**
+     * 收藏按 id 取并集（参考 c001apk 的 fav_cloud_sync._mergeById）：
+     * 本地已有的车 / 路线 / 分组都不动（保留本地那份，包括本地改过的名字和分组），只把备份里多出来的加进来。
+     * 分组 id 是各设备自己生成的，所以本地同 id 优先、其次同名（去空格、忽略大小写），都认不出才新建。
+     */
+    private suspend fun applyFavorites(decoded: DecodedFavorites): FavoritesMerge {
+        val localStops = favoritesRepository.favorites.value.mapTo(HashSet()) { it.id }
+        val localRoutes = favoritesRepository.routes.value.mapTo(HashSet()) { it.id }
+        val localGroups = favoritesRepository.favoriteGroups.value
+        val localGroupIds = localGroups.mapTo(HashSet()) { it.id }
+        val localGroupByName = localGroups.associateBy { it.name.trim().lowercase() }
+        val groupIdsByName = HashSet<String>()
+
+        // 1) 分组：本地已有（同 id 或同名）就复用本地 id；其余按备份顺序新建
         val groupIdMap = HashMap<String, String>()
-        decoded.groups.forEach { old ->
-            groupIdMap[old.id] = favoritesRepository.createGroup(old.name).id
-        }
-        decoded.stops.forEach { favoritesRepository.toggleFavorite(it) }
-        decoded.routes.forEach { route ->
-            favoritesRepository.saveRoute(route.copy(customGroupId = route.customGroupId?.let { groupIdMap[it] }))
+        decoded.groups.forEach { backupGroup ->
+            if (backupGroup.id in localGroupIds) {
+                groupIdMap[backupGroup.id] = backupGroup.id
+            } else {
+                val nameKey = backupGroup.name.trim().lowercase()
+                val existing = localGroupByName[nameKey]?.takeIf { it.id !in groupIdsByName }
+                groupIdMap[backupGroup.id] = when {
+                    existing != null -> existing.id
+                    else -> favoritesRepository.createGroup(backupGroup.name).id
+                }
+            }
+            groupIdsByName += groupIdMap.getValue(backupGroup.id)
         }
 
-        val stopIds = decoded.stops.mapTo(HashSet()) { it.id }
-        val routeIds = decoded.routes.mapTo(HashSet()) { it.id }
-        decoded.items.forEach { record ->
-            val exists = when (record.type) {
-                FavoriteItemType.STOP -> record.refId in stopIds
-                FavoriteItemType.ROUTE -> record.refId in routeIds
+        // 2) 车：本地没有的才加（toggleFavorite 是「有就删」，所以必须先判存在）
+        val addedStopIds = LinkedHashSet<String>()
+        var added = 0
+        var keptExisting = 0
+        decoded.stops.forEach { stop ->
+            if (stop.id in localStops) {
+                keptExisting++
+            } else {
+                addedStopIds += stop.id
+                if (favoritesRepository.toggleFavorite(stop)) added++ else keptExisting++
             }
-            if (!exists) return@forEach
+        }
+
+        // 3) 路线：本地没有的才加；分组按上面的映射改写，指向备份里没有的分组时按不分组处理
+        val addedRouteIds = LinkedHashSet<String>()
+        decoded.routes.forEach { route ->
+            if (route.id in localRoutes) {
+                keptExisting++
+            } else {
+                addedRouteIds += route.id
+                favoritesRepository.saveRoute(
+                    route.copy(customGroupId = route.customGroupId?.let { groupIdMap[it] })
+                )
+                added++
+            }
+        }
+
+        // 4) 分组归属只重放到这次新加的条目上（已有的条目保留本地分组，不被备份覆盖）；
+        //    新加条目的先后按备份索引排，索引没列到的（防御性）垫最后
+        val addedKeys = (addedStopIds.map { FavoriteItem.stopKey(it) } +
+            addedRouteIds.map { FavoriteItem.routeKey(it) }).toSet()
+        val backupOrderKeys = LinkedHashSet<String>()
+        decoded.items.sortedBy { it.sortOrder }.forEach { if (it.key in addedKeys) backupOrderKeys += it.key }
+        addedKeys.filterTo(backupOrderKeys) { it !in backupOrderKeys }
+
+        decoded.items.forEach { record ->
+            if (record.key !in addedKeys) return@forEach
             // 指向备份里没有的分组 → 按不分组处理（RestorePlan 已计数提醒）
             favoritesRepository.setGroup(record.key, record.groupId?.let { groupIdMap[it] })
         }
 
-        // 合一顺序：备份索引在前（认得出对象的），其它备份条目垫后（理论走不到，防御性补齐）
-        val restoredKeys = (decoded.stops.map { FavoriteItem.stopKey(it.id) } +
-            decoded.routes.map { FavoriteItem.routeKey(it.id) }).toSet()
+        // 5) 顺序：本地原有顺序在前，新加的按备份顺序垫在后面
         val orderedKeys = LinkedHashSet<String>()
-        decoded.items.sortedBy { it.sortOrder }.forEach { if (it.key in restoredKeys) orderedKeys += it.key }
-        decoded.stops.forEach { orderedKeys += FavoriteItem.stopKey(it.id) }
-        decoded.routes.forEach { orderedKeys += FavoriteItem.routeKey(it.id) }
-        favoritesRepository.move(orderedKeys.toList())
+        favoritesRepository.favoriteItems.value.map { it.key }
+            .filterTo(orderedKeys) { it !in addedKeys }
+        orderedKeys += backupOrderKeys
+        if (orderedKeys.size > 1) favoritesRepository.move(orderedKeys.toList())
+
+        return FavoritesMerge(added = added, keptExisting = keptExisting)
+    }
+
+    /** 定时提醒同款 id 并集：本地已有这个 id 就不动，只补没有的（saveReminder 会顺带注册闹钟） */
+    private suspend fun applyReminders(decoded: DecodedReminders): Int {
+        val repository = reminderRepository ?: return 0
+        val localIds = repository.reminders.value.mapTo(HashSet()) { it.id }
+        var added = 0
+        decoded.items.forEach { reminder ->
+            if (reminder.id in localIds) return@forEach
+            repository.saveReminder(reminder)
+            added++
+        }
+        return added
     }
 
     // ---- WebDAV 辅助 ----

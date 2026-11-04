@@ -56,6 +56,13 @@
     <string name="me_elder_mode">长辈版</string>
     <string name="me_elder_mode_desc">字更大，按钮更大</string>
     <string name="me_rail_mode">走向条样式</string>
+    <string name="me_color_palette">应用配色</string>
+    <string name="me_color_palette_desc">换一套主色，到站绿 / 预警橙这些含义色不变</string>
+    <string name="me_color_blue">蓝</string>
+    <string name="me_color_green">绿</string>
+    <string name="me_color_orange">橙</string>
+    <string name="me_color_purple">紫</string>
+    <string name="me_color_pink">粉</string>
     <string name="me_rail_mode_desc">线路详情页的站点怎么排</string>
     <string name="me_group_travel">出行</string>
     <string name="me_arrival_alert">到站前提醒</string>
@@ -104,8 +111,8 @@
     <!-- WebDAV 备份（第 39 步）：连接表单、远端列表、恢复确认、结果提示全部文案 -->
     <string name="me_webdav_title">WebDAV 备份</string>
     <string name="me_group_backup">备份</string>
-    <string name="me_webdav_entry_desc">备份和恢复：设置、搜索记录、收藏</string>
-    <string name="me_webdav_intro">把设置、搜索记录和收藏打包成一个 JSON 文件存到自己的 WebDAV 网盘（坚果云、群晖等），换机 or 误删后可以挑一份恢复回去。密码只保存在本次使用中，不会写进手机存储。</string>
+    <string name="me_webdav_entry_desc">备份和恢复：设置、搜索记录、收藏、定时提醒</string>
+    <string name="me_webdav_intro">把设置、搜索记录、收藏和定时提醒打包成一个 JSON 文件存到自己的 WebDAV 网盘（坚果云、群晖等），换机或误删后可以挑一份恢复回去。恢复时收藏和提醒按 id 合并：本地已有的保留本地那一份，只把备份里多出来的补进来。密码只保存在本次使用中，不会写进手机存储。</string>
     <string name="me_webdav_server">服务器地址</string>
     <string name="me_webdav_server_placeholder">https://dav.jianguoyun.com/dav/</string>
     <string name="me_webdav_username">用户名</string>
@@ -122,12 +129,16 @@
     <string name="me_webdav_last_backup_none">还没备份过</string>
     <string name="me_webdav_remote_files">手机上的备份（WebDAV 服务器）</string>
     <string name="me_webdav_files_empty">目录里没有备份文件，先点「立即备份」或用别的设备备份过再刷新</string>
-    <string name="me_webdav_files_hint">点「刷新列表」读取远端目录；点一条文件可以恢复</string>
+    <string name="me_webdav_files_hint">点「刷新列表」读取远端目录；每条文件用「恢复」按钮恢复，「删除」删掉远端文件</string>
+    <string name="me_webdav_restore">恢复</string>
+    <string name="me_webdav_restore_entry">从备份恢复</string>
+    <string name="me_webdav_restore_pick_title">选择要恢复的备份</string>
+    <string name="me_webdav_restore_pick_hint">选一份下载并列出要恢复的内容，确认后才写入本机；收藏和提醒只补本地没有的</string>
     <string name="me_webdav_delete">删除</string>
     <string name="me_webdav_connect_ok">连接成功，目录可用</string>
     <string name="me_webdav_backup_ok">已备份：%1$s</string>
     <string name="me_webdav_restore_confirm">开始恢复</string>
-    <string name="me_webdav_restore_ok">恢复完成，设置、搜索记录和收藏已按备份替换</string>
+    <string name="me_webdav_restore_ok">恢复完成：设置、搜索记录按备份写入；收藏和定时提醒只补充本地没有的，本地已有的都保留</string>
     <string name="me_webdav_delete_ok">已删除远端备份</string>
     <string name="me_webdav_no_url">先填服务器地址</string>
     <string name="me_webdav_err_auth">认证失败：用户名或密码不对</string>
@@ -140,15 +151,15 @@
     <string name="me_webdav_err_payload">备份文件读不出来（不是合法 JSON 或结构不对）</string>
     <string name="me_webdav_err_generic">操作失败，稍后再试</string>
     <string name="me_webdav_restore_title">确认恢复这份备份？</string>
-    <string name="me_webdav_restore_about">将从 %1$s 下载并恢复。备份是整体替换，不是合并：</string>
+    <string name="me_webdav_restore_about">将从 %1$s 下载并恢复。收藏和定时提醒是合并（本地已有的不动），设置和搜索记录按备份写入：</string>
     <string name="me_webdav_restore_created">备份生成于 %1$s（本机时区）</string>
-    <string name="me_webdav_replace_settings">• 设置：按备份覆盖 %1$d 项（数据来源、城市、提醒开关、界面模式等）</string>
-    <string name="me_webdav_replace_history">• 搜索记录：先清空，再写入备份里的 %1$d 条</string>
-    <string name="me_webdav_replace_favorites">• 收藏：先删除现有收藏 / 路线 / 分组，再按备份重建</string>
-    <string name="me_webdav_contains_stops">车 %1$d 条</string>
-    <string name="me_webdav_contains_routes">路线 %1$d 条</string>
+    <string name="me_webdav_replace_settings">设置：按备份覆盖 %1$d 项（数据来源、城市、提醒开关、界面模式、走向条、应用配色等）</string>
+    <string name="me_webdav_replace_history">搜索记录：先清空，再写入备份里的 %1$d 条</string>
+    <string name="me_webdav_replace_city_history">城市搜索记录：先清空，再写入备份里的 %1$d 条</string>
+    <string name="me_webdav_replace_favorites">收藏：合并进本地，只补本地没有的（备份里车 %1$d 条、路线 %2$d 条）</string>
     <string name="me_webdav_contains_groups">分组 %1$d 个</string>
+    <string name="me_webdav_restore_reminders">定时提醒：合并进本地，只补本地没有的（备份里共 %1$d 条）</string>
     <string name="me_webdav_skipped_items">备份里有 %1$s 条认不出的收藏数据，会跳过、不影响其它条目</string>
     <string name="me_webdav_unknown_group_note">有条目指向备份里没有的分组，恢复后这些条目归到「不分组」</string>
-    <string name="me_webdav_restore_warning">恢复只用这份备份替换本机数据，不会动高德 Key；建议操作前先去「我的-关于」看一眼现在的收藏。</string>
+    <string name="me_webdav_restore_warning">恢复不会删你本地的收藏和提醒（同 id 的保留本机版本），但设置和搜索记录会被这份备份覆盖；不会动高德 Key 和 WebDAV 密码。</string>
 </resources>

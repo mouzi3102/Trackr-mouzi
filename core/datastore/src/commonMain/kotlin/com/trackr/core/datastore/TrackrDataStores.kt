@@ -55,8 +55,14 @@ object SettingsKeys {
     /** 线路详情走向条样式（`RailMode` 的名字）；没有或认不出 = 横排 */
     val RAIL_MODE = stringPreferencesKey("rail_mode")
 
+    /** 应用配色（`AppColorPalette` 的名字）；没有或认不出 = 蓝（原主题）。长辈版不看这一项 */
+    val APP_COLOR_PALETTE = stringPreferencesKey("app_color_palette")
+
     /** 系统字体放大时的「试试长辈版」提示点过了（第 30 步新加）；没有 = 还没点过 */
     val FONT_SCALE_PROMPT_DISMISSED = booleanPreferencesKey("font_scale_prompt_dismissed")
+
+    /** 「开启流体云 / 实时活动」的启动引导点过了（去开或先不用都算）；没有 = 还没弹过 */
+    val LIVE_UPDATE_PROMPT_DISMISSED = booleanPreferencesKey("live_update_prompt_dismissed")
 
     /**
      * 城市选择器搜索历史。和 [SELECTED_CITY_JSON] 同款：DataStore 里永远只放标量，

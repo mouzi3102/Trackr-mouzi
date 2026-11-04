@@ -20,6 +20,7 @@ import com.trackr.service.vendor.OppoFluidCloudAdapter
 import com.trackr.service.vendor.XiaomiFocusAdapter
 import com.trackr.ui.platform.LiveUpdateAccess
 import com.trackr.ui.platform.LiveUpdateSettings
+import com.trackr.ui.platform.LiveUpdateFamily
 import com.trackr.ui.platform.LiveUpdateStatus
 import com.trackr.util.SignatureUtils
 import com.trackr.util.TransitCodeHelper
@@ -48,7 +49,8 @@ val platformBridgeModule: Module = module {
     single<LocalMigrationFlags> { StoreMigrationFlags(get()) }
     factory { androidAppVersion(androidContext()) }
     // 构建时注入的高德 Key（和 StorageBackend 里给 AmapKeyRepository 的是同一组值）；「更多」页 Key 对话框判断「已配置」用
-    single { AmapKeyDefaults(androidKey = BuildConfig.AMAP_ANDROID_KEY, webKey = BuildConfig.AMAP_WEB_KEY, hasAndroidMapSdk = true) }
+    // 不含高德 Android 地图 SDK 的精简构建：Android 槽不生效，路线页不画地图（算路仍走 Web 服务 Key）
+    single { AmapKeyDefaults(androidKey = BuildConfig.AMAP_ANDROID_KEY, webKey = BuildConfig.AMAP_WEB_KEY, hasAndroidMapSdk = false) }
 }
 
 /** 乘车码：转调 [TransitCodeHelper]（Intent 都带 NEW_TASK，用 applicationContext 打开和原来一样） */
@@ -78,6 +80,7 @@ class AndroidAppSigningInfo(context: Context) : AppSigningInfo {
 object AndroidLiveUpdateSettings : LiveUpdateSettings {
     override fun isPromotionSupported(): Boolean = LiveUpdatePromotion.isPromotionSupported()
     override fun canPromote(context: Context): Boolean = LiveUpdatePromotion.canPromote(context)
+    override fun canAskForPromotion(context: Context): Boolean = LiveUpdatePromotion.canAskForPromotion(context)
     override fun openPromotionSettings(context: Context): Boolean = LiveUpdatePromotion.openPromotionSettings(context)
     override fun openAppNotificationSettings(context: Context): Boolean =
         LiveUpdatePromotion.openAppNotificationSettings(context)
@@ -99,7 +102,9 @@ class AndroidLiveUpdateAccess(
     private val appContext: Context = context.applicationContext ?: context
 
     private val supported: Boolean
-        get() = settings.isPromotionSupported() || settings.isXiaomiRom() || settings.isColorOs()
+        // 小米看焦点通知；其它家要看这台机器上是不是真有「置顶通知 / 实时活动」的入口
+        // （Android 16 的 API 在，但 ROM 没做这个功能的 —— 部分 vivo / iQOO —— 就不该报「未开启」，也不该弹引导）
+        get() = settings.isXiaomiRom() || settings.canAskForPromotion(appContext)
 
     private fun allowed(): Boolean = when {
         settings.isXiaomiRom() -> settings.canShowXiaomiFocus(appContext)
@@ -109,12 +114,17 @@ class AndroidLiveUpdateAccess(
 
     override fun status(): LiveUpdateStatus {
         if (!supported) return LiveUpdateStatus(supported = false, allowed = false, systemName = "")
-        val name = when {
-            settings.isXiaomiRom() -> "小米焦点通知"
-            settings.isColorOs() -> "OPPO 流体云"
-            else -> "Android 实时活动"
+        val (name, family) = when {
+            settings.isXiaomiRom() -> "小米焦点通知" to LiveUpdateFamily.XIAOMI
+            settings.isColorOs() -> "OPPO 流体云" to LiveUpdateFamily.COLOR_OS
+            else -> "Android 实时活动" to LiveUpdateFamily.ANDROID
         }
-        return LiveUpdateStatus(supported = true, allowed = allowed(), systemName = name)
+        return LiveUpdateStatus(
+            supported = true,
+            allowed = allowed(),
+            systemName = name,
+            family = family
+        )
     }
 
     override fun openSettings() {

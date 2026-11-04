@@ -101,7 +101,7 @@ class StorageBackend private constructor(
         private fun amapKeyDefaults() = AmapKeyDefaults(
             androidKey = BuildConfig.AMAP_ANDROID_KEY,
             webKey = BuildConfig.AMAP_WEB_KEY,
-            hasAndroidMapSdk = true
+            hasAndroidMapSdk = false
         )
 
         private fun newWriter(scope: CoroutineScope) = SerialWriter(scope).apply {

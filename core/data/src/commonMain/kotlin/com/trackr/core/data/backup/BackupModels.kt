@@ -1,12 +1,15 @@
 package com.trackr.core.data.backup
 
 import com.trackr.core.model.FavoriteGroup
+import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteItemRecord
 import com.trackr.core.model.FavoriteStationLine
+import com.trackr.core.model.ScheduledReminder
 import com.trackr.core.model.TransitCity
 import com.trackr.core.model.TransitGroup
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -14,7 +17,8 @@ import kotlinx.serialization.json.JsonElement
 
 /*
  * 「我的」WebDAV 备份的数据结构（参考 c001apk 的 BackupService：一个 JSON 文件，app/version/createdAt 头部 + 分区）。
- * 备份范围按需求：设置配置、搜索记录、收藏（车 + 路线 + 分组 + 合一顺序）。高德 Key（`trackr_amap_keys`）明确不备份。
+ * 备份范围按需求：设置配置、搜索记录（线路 + 城市）、收藏（车 + 路线 + 分组 + 合一顺序）、定时提醒。
+ * 高德 Key（`trackr_amap_keys`）和 WebDAV 连接配置明确不备份（连接配置含服务器地址，恢复别人的备份会把人往自己网盘上写）。
  *
  * 列表类分区存成 List<JsonElement>：逐条宽松解析，坏一条跳一条，不拖垮整个恢复（模仿参考实现 reviveFavEntries 的跳过计数）。
  */
@@ -41,7 +45,11 @@ data class TrackrBackupPayload(
     val settings: SettingsBackup? = null,
     /** 搜索历史，按「最近的在前」存（和 SearchHistoryRepository 的顺序一致） */
     val searchHistory: List<String>? = null,
-    val favorites: FavoritesBackup? = null
+    /** 城市选择器的搜索历史，同样「最近的在前」（旧备份没有这段 null，恢复时不动） */
+    @SerialName("citySearchHistory") val citySearchHistory: List<String>? = null,
+    val favorites: FavoritesBackup? = null,
+    /** 定时提醒 [ScheduledReminder] 原始元素列表；iOS 没有这个仓库时备份不带这段（null） */
+    val reminders: List<JsonElement>? = null
 )
 
 /**
@@ -64,6 +72,10 @@ data class SettingsBackup(
     val alertThresholdStops: Int? = null,
     /** UiMode 的名字 */
     val uiMode: String? = null,
+    /** 走向条样式 RailMode 的名字（旧备份没这段 = null，恢复时不动这项） */
+    val railMode: String? = null,
+    /** 应用配色 AppColorPalette 的名字 */
+    val appColorPalette: String? = null,
     val fontScalePromptDismissed: Boolean? = null
 )
 
@@ -130,6 +142,31 @@ fun decodeBackupFavorites(raw: FavoritesBackup?): DecodedFavorites {
     return DecodedFavorites(groups, stops, routes, items, skipped)
 }
 
+/** 定时提醒分区逐条解码后的结果（skipped = 认不出/坏数据的条数） */
+data class DecodedReminders(
+    val items: List<ScheduledReminder> = emptyList(),
+    val skipped: Int = 0
+)
+
+/**
+ * 提醒分区 → 可执行的数据（纯函数）。规则和收藏一样：id 非空、按 id 去重只留第一条、坏一条跳一条。
+ * 提醒 id 是设备内生成的 UUID，跨设备恢复时基本不会撞，撞了按「本地已有」跳过（不做文案相似度匹配，规则要能讲清）。
+ */
+fun decodeBackupReminders(raw: List<JsonElement>?): DecodedReminders {
+    if (raw == null) return DecodedReminders()
+    var skipped = 0
+    val out = LinkedHashMap<String, ScheduledReminder>()
+    raw.forEach { element ->
+        val decoded = element.decodeWith(ScheduledReminder.serializer())
+        if (decoded == null || decoded.id.isBlank()) {
+            skipped++
+        } else {
+            out.putIfAbsent(decoded.id, decoded)
+        }
+    }
+    return DecodedReminders(out.values.toList(), skipped)
+}
+
 /** 恢复会动哪几段、各自动多少条、跳过了多少坏数据（纯函数，确认对话框和单测都吃这个） */
 data class RestorePlan(
     val schemaVersion: Int,
@@ -137,6 +174,9 @@ data class RestorePlan(
     val settingsFieldCount: Int,
     val replaceSearchHistory: Boolean,
     val searchHistoryCount: Int,
+    /** 城市搜索历史：整段替换（条数少、纯本地输入辅助，恢复后不会觉得少东西） */
+    val replaceCitySearchHistory: Boolean,
+    val citySearchHistoryCount: Int,
     val replaceFavorites: Boolean,
     val stopCount: Int,
     val routeCount: Int,
@@ -145,6 +185,10 @@ data class RestorePlan(
     val itemsInUnknownGroup: Int,
     /** 跳过的坏条目数 */
     val skippedFavorites: Int,
+    /** 定时提醒：只补本地没有的 id，已有的不动 */
+    val replaceReminders: Boolean,
+    val reminderCount: Int,
+    val skippedReminders: Int,
     /** 没有任何可恢复内容 */
     val empty: Boolean
 )
@@ -152,14 +196,20 @@ data class RestorePlan(
 private val settingsFieldGetters: List<(SettingsBackup) -> Any?> = listOf(
     { it.city }, { it.engineMode }, { it.transitCodeProvider }, { it.nearbyStopsCount },
     { it.liveNotificationEnabled }, { it.showOnLockScreen }, { it.alertThresholdStops },
-    { it.uiMode }, { it.fontScalePromptDismissed }
+    { it.uiMode }, { it.railMode }, { it.appColorPalette }, { it.fontScalePromptDismissed }
 )
 
-fun planRestore(payload: TrackrBackupPayload, favorites: DecodedFavorites): RestorePlan {
+fun planRestore(
+    payload: TrackrBackupPayload,
+    favorites: DecodedFavorites,
+    reminders: DecodedReminders = DecodedReminders()
+): RestorePlan {
     val settingsCount = payload.settings?.let { s -> settingsFieldGetters.count { it(s) != null } } ?: 0
     val replaceSettings = payload.settings != null && settingsCount > 0
     val replaceHistory = payload.searchHistory != null
+    val replaceCityHistory = payload.citySearchHistory != null
     val replaceFavorites = payload.favorites != null
+    val replaceReminders = payload.reminders != null
     val knownGroups = favorites.groups.mapTo(HashSet()) { it.id }
     val unknownGroupRefs = favorites.items.count { it.groupId != null && it.groupId !in knownGroups }
     return RestorePlan(
@@ -168,13 +218,19 @@ fun planRestore(payload: TrackrBackupPayload, favorites: DecodedFavorites): Rest
         settingsFieldCount = settingsCount,
         replaceSearchHistory = replaceHistory,
         searchHistoryCount = payload.searchHistory?.size ?: 0,
+        replaceCitySearchHistory = replaceCityHistory,
+        citySearchHistoryCount = payload.citySearchHistory?.size ?: 0,
         replaceFavorites = replaceFavorites,
         stopCount = favorites.stops.size,
         routeCount = favorites.routes.size,
         groupCount = favorites.groups.size,
         itemsInUnknownGroup = unknownGroupRefs,
         skippedFavorites = favorites.skipped,
-        empty = !replaceSettings && !replaceHistory && !replaceFavorites
+        replaceReminders = replaceReminders,
+        reminderCount = reminders.items.size,
+        skippedReminders = reminders.skipped,
+        empty = !replaceSettings && !replaceHistory && !replaceCityHistory &&
+            !replaceFavorites && !replaceReminders
     )
 }
 

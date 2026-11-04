@@ -21,9 +21,23 @@ interface LiveUpdateAccess {
  * @param supported 系统支不支持状态栏胶囊（Android 16 实时活动、小米焦点通知、OPPO 流体云三者之一）
  * @param allowed 用户开没开权限；[supported] 为 false 时恒为 false
  * @param systemName 给用户看的系统功能名，比如「小米焦点通知」；不支持时为空串
+ * @param family 该走哪一套引导（决定弹哪个对话框、跳哪个设置页）
  */
 data class LiveUpdateStatus(
     val supported: Boolean,
     val allowed: Boolean,
-    val systemName: String
+    val systemName: String,
+    val family: LiveUpdateFamily = LiveUpdateFamily.ANDROID
 )
+
+/** 实时活动在各系统上的族别 */
+enum class LiveUpdateFamily {
+    /** 小米澎湃OS 焦点通知（超级岛） */
+    XIAOMI,
+
+    /** OPPO ColorOS / 一加 / 真我 流体云 */
+    COLOR_OS,
+
+    /** 其它 Android 16 原生实时活动 */
+    ANDROID
+}

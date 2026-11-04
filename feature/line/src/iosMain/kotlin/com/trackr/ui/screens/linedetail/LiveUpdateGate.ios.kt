@@ -7,6 +7,7 @@ private object NoLiveUpdateGate : LiveUpdateGate {
     override fun blockingGuide(): LiveUpdateGuide? = null
     override fun openSettings(guide: LiveUpdateGuide) = Unit
     override fun deviceHint(guide: LiveUpdateGuide): String = ""
+    override fun markHandled(guide: LiveUpdateGuide) = Unit
 }
 
 @Composable

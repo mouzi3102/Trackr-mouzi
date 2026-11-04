@@ -446,6 +446,8 @@ class BusHomeViewModel(
      * 重新定位不切城市也不对齐引擎，是 v0.0.8「重新定位后附近为空」的根因）。
      */
     private fun alignEngineToCity(city: TransitCity) {
+        // 自动模式下两源都会试，不需要按城市把引擎钉死成某一家（钉死反而把用户选的「自动」弄丢了）
+        if (_uiState.value.engineMode == EngineMode.AUTO) return
         val target = when {
             city.cityId.isBlank() && !city.mygolbsCityCode.isNullOrBlank() -> EngineMode.MYGOLBS
             city.cityId.isNotBlank() && city.mygolbsCityCode.isNullOrBlank() -> EngineMode.CHELAILE
@@ -564,9 +566,11 @@ class BusHomeViewModel(
     }
 
     fun toggleEngineMode() {
+        // 三态循环：车来了 → 掌上公交 → 自动 → 车来了
         val nextMode = when (_uiState.value.engineMode) {
-            EngineMode.MYGOLBS -> EngineMode.CHELAILE
+            EngineMode.MYGOLBS -> EngineMode.AUTO
             EngineMode.CHELAILE -> EngineMode.MYGOLBS
+            EngineMode.AUTO -> EngineMode.CHELAILE
         }
         setEngineMode(nextMode)
     }

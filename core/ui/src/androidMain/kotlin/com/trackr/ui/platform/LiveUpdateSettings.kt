@@ -16,6 +16,9 @@ interface LiveUpdateSettings {
     /** `LiveUpdatePromotion.canPromote(context)` */
     fun canPromote(context: Context): Boolean
 
+    /** `LiveUpdatePromotion.canAskForPromotion(context)`：本机找不找得到这个开关（没实现的 ROM 别引导） */
+    fun canAskForPromotion(context: Context): Boolean
+
     /** `LiveUpdatePromotion.openPromotionSettings(context)` */
     fun openPromotionSettings(context: Context): Boolean
 
