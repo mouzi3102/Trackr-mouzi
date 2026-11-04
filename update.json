@@ -2,7 +2,7 @@
   "versionCode": 10,
   "versionName": "0.1.5",
   "minSupportedVersionCode": 1,
-  "changelog": "0.1.5：WebDAV 恢复入口与合并式恢复、数据来源加「自动」、应用配色与 UI 统一、不支持实时活动的机型不再弹引导；只出 arm64-v8a（4.6MB）。",
+  "changelog": "构建与文档：彻底断开高德 Android SDK，加 CI 出包 workflow\n- `androidApp/build.gradle.kts` 删掉 `AMAP_ANDROID_KEY` / `_DEBUG` / `_RELEASE` 三个注入项与对应的\n  `buildConfigField`，`amapKeyStatus` 只报 Web 服务 Key；三个消费方（`TrackrApp`、`StorageBackend`、\n  `PlatformBridgeModule`）改用 `AmapKeyDefaults` 的空 android 槽。不集成地图 SDK 之后这套 key 没有任何作用，\n  留着只会让人去高德控制台给一个不存在的 SDK 注册包名 + SHA-1。\n- CI 新增 `.github/workflows/release-build.yml`：推 `v*` tag（或手动 dispatch）在 Ubuntu runner 上\n  JDK 21 + SDK 37 出 arm64-v8a 包；配了签名 Secrets 才建 / 更新 Release 并上传\n  `trackr-<版本>-arm64-v8a.apk`，没配就只挂 Actions 产物并告警 —— 未签名包不能进公开 Release。\n- `.github/scripts/update_metadata.py` 的 `downloadUrls` 从两 ABI 收成 arm64-v8a 一项；取不到匹配架构时\n  应用内回退 `downloadUrl`（`UpdateInfo.pickDownloadUrl` 已是这个逻辑）。\n- README「高德 SDK 用法」一节（一百多行讲地图渲染 / SHA-1 / MapsInitializer / AmapMapSession / 地图白屏排查）\n  按现状重写成 Web 服务 Key 一节；AGENTS.md 里 `:feature:route` 的高德 SDK 封装描述同步修正。",
   "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.5",
   "downloadUrls": {
     "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.5/trackr-0.1.5-arm64-v8a.apk"
