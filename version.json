@@ -1,0 +1,12 @@
+{
+  "versionCode": 10,
+  "versionName": "0.1.5",
+  "minSupportedVersionCode": 1,
+  "changelog": "0.1.5：WebDAV 恢复入口与合并式恢复、数据来源加「自动」、应用配色与 UI 统一、不支持实时活动的机型不再弹引导；只出 arm64-v8a（4.6MB）。",
+  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.5",
+  "downloadUrls": {
+    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.5/trackr-0.1.5-arm64-v8a.apk"
+  },
+  "publishTime": "2026-11-04",
+  "forceUpdate": false
+}
