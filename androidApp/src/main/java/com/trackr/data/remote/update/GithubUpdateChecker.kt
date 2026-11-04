@@ -1,6 +1,7 @@
 package com.trackr.data.remote.update
 
 import android.os.Build
+import com.trackr.BuildConfig
 import com.trackr.core.domain.platform.UpdateChecker
 import com.trackr.core.model.AppUpdateInfo
 import com.trackr.core.model.UpdateCheckResult

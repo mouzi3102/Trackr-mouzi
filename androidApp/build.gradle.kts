@@ -56,14 +56,16 @@ android {
 
     signingConfigs {
         create("release") {
-            val storeFilePath = System.getenv("RELEASE_STORE_FILE")
-                ?: localProperties.getProperty("RELEASE_STORE_FILE")
-            val storePwd = System.getenv("RELEASE_STORE_PASSWORD")
-                ?: localProperties.getProperty("RELEASE_STORE_PASSWORD")
-            val keyAliasStr = System.getenv("RELEASE_KEY_ALIAS")
-                ?: localProperties.getProperty("RELEASE_KEY_ALIAS")
-            val keyPwd = System.getenv("RELEASE_KEY_PASSWORD")
-                ?: localProperties.getProperty("RELEASE_KEY_PASSWORD")
+            // CI 里没配签名时这些值会变成空串而不是「未设置」（`env: X: ${{ ... }}` 取空输出就是这个结果），
+            // 空串交给 file() 会报 "Cannot convert '' to File"，所以统一按「没配」处理：出未签名包。
+            fun sigProp(name: String): String? =
+                System.getenv(name)?.trim().orEmpty()
+                    .ifBlank { localProperties.getProperty(name, "").trim() }
+                    .takeIf { it.isNotEmpty() }
+            val storeFilePath = sigProp("RELEASE_STORE_FILE")
+            val storePwd = sigProp("RELEASE_STORE_PASSWORD")
+            val keyAliasStr = sigProp("RELEASE_KEY_ALIAS")
+            val keyPwd = sigProp("RELEASE_KEY_PASSWORD")
 
             if (storeFilePath != null && storePwd != null && keyAliasStr != null && keyPwd != null) {
                 val candidate1 = file(storeFilePath)
