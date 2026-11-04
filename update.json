@@ -2,7 +2,7 @@
   "versionCode": 10,
   "versionName": "0.1.5",
   "minSupportedVersionCode": 1,
-  "changelog": "修补更新源与 CI：补 BuildConfig import、签名配置改成空串安全\n上一提交在 GithubUpdateChecker 用了 BuildConfig.UPDATE_REPO，却没 import com.trackr.BuildConfig，\n单独检出那个提交编译不过；这里补上 import。\n\nsigningConfigs 原来只区分「环境变量没设」和「设了」，但 CI 里 `env: RELEASE_STORE_FILE: ${{ 没产生的输出 }}`\n是「设了但是空串」，直接把这个空串交给 file() 会报：Cannot convert '' to File。\n现在四个值统一走 sigProp()：trim 后为空就当没配置 → 正常出未签名包，本地写了空值也不会把构建搞崩。",
+  "changelog": "版本 0.1.5 / versionCode 10，arm64-v8a 单包，4.6 MB（已签名，V2，SHA-1 657cc6b3f34a78a3392b9b8aa731eadc95d53998）。\n\n## 这次做了什么\n- **WebDAV**：新增常驻「从备份恢复」入口（没拉列表时点它先去读远端目录、读到自动弹文件选择框）+ 每条备份的「恢复」按钮；修掉「立即备份」必失败的一个序列化 bug；备份补上走向条样式、应用配色、城市搜索历史、定时提醒；收藏和提醒改成按 id **合并**（本地已有的保留本地版本，不再被备份覆盖）；0.1.4 的旧备份文件照样能恢复。\n- **数据来源加「自动」**：先车来了，空了自动回落掌上公交（搜索两源并发，整段选一家）；单源模式行为不变。\n- **UI**：公交首页顶栏换掉 `LargeTopAppBar`，修掉顶部大片空白；8 个页面顶栏底色/滚动色/insets 统一；新增「应用配色」蓝 / 绿 / 橙 / 紫 / 粉（只换品牌色，到站绿·预警橙·步行灰含义不变，长辈版不受影响）。\n- **实时活动 / 流体云**：没实现该功能的机型（部分 vivo / iQOO）不再弹引导；「暂不开启」终于会记住，不再每次点追踪都弹；冷启动引导一次。\n- **构建**：只出 arm64-v8a；彻底移除高德 SDK 的残留声明与没用的 Key 注入；新增 tag 触发的 CI 出包 workflow。\n\n## 安装\n直接覆盖装上一版 0.1.5 预发包可以（同一把签名）。若你装的是别的签名构建，需先卸载。",
   "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.5",
   "downloadUrls": {
     "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.5/trackr-0.1.5-arm64-v8a.apk"
