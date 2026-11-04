@@ -181,7 +181,7 @@ class DefaultBackupRepository(
         val createdAt = nowMillis()
         val json = withContext(Dispatchers.Default) { encodeBackupJson(collectPayload(createdAt)) }
         val fileName = backupFileNameFor(connection.filePrefix, createdAt)
-        ensureDirectory(auth, directoryUrl)
+        ensureDirectoryChain(auth, connection.baseUrl, connection.remoteDir)
         val response = transport.putText(joinWebDavUrl(directoryUrl, fileName), auth, json)
         if (!response.isSuccess) {
             throw when (response.code) {
@@ -441,14 +441,26 @@ class DefaultBackupRepository(
         )
     }
 
-    /** 目录不存在就 MKCOL；405/409/412 都当「目录已有」放过（同参考实现 _mkcolBackupDir 的判法） */
-    private suspend fun ensureDirectory(auth: String, directoryUrl: String) {
-        val probe = transport.propFind(directoryUrl, auth)
-        if (probe.isSuccess || probe.code == 207 || probe.code == 405) return
-        if (probe.code != 404 && probe.code != 409 && probe.code != 412) throw dirFailure(probe)
-        val created = transport.mkcol(directoryUrl, auth)
-        val accepted = created.isSuccess || created.code == 405 || created.code == 409 || created.code == 412
-        if (!accepted) throw WebDavBackupFailure(WebDavBackupFailure.Kind.DIR_MISSING, created.code, snippet(created))
+    /**
+     * 逐级确保远端目录存在：坚果云这类服务器不会一次创建多级目录（父目录不存在时 MKCOL 直接 409 / 423），
+     * 所以按路径段一层层建；已存在（207/200/405/409/412）都当成功跳过。
+     */
+    private suspend fun ensureDirectoryChain(auth: String, baseUrl: String, remoteDir: String) {
+        val segments = remoteDir.split('/').filter { it.isNotBlank() }
+        if (segments.isEmpty()) return
+        var path = ""
+        segments.forEach { segment ->
+            path = if (path.isEmpty()) segment else "$path/$segment"
+            val url = joinWebDavUrl(baseUrl, path)
+            val probe = transport.propFind(url, auth)
+            if (probe.isSuccess || probe.code == 207) return@forEach
+            if (probe.code != 404 && probe.code != 409 && probe.code != 412 && probe.code != 405) {
+                throw dirFailure(probe)
+            }
+            val created = transport.mkcol(url, auth)
+            val accepted = created.isSuccess || created.code == 405 || created.code == 409 || created.code == 412
+            if (!accepted) throw WebDavBackupFailure(WebDavBackupFailure.Kind.DIR_MISSING, created.code, snippet(created))
+        }
     }
 
     private fun dirFailure(response: WebDavRaw): WebDavBackupFailure = when (response.code) {

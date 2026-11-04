@@ -1,6 +1,7 @@
 package com.trackr.core.data.backup
 
 import com.trackr.core.model.EngineMode
+import com.trackr.core.network.remote.webdav.joinWebDavUrl
 import com.trackr.core.model.FavoriteGroup
 import com.trackr.core.model.FavoriteItem
 import com.trackr.core.model.FavoriteItemRecord
@@ -150,6 +151,42 @@ class BackupRepositoryScenarioTest {
         val json = put.body
         assertTrue(json.contains("\"app\":\"Trackr\"") && json.contains("\"schemaVersion\":1"), json)
         assertEquals(1_793_806_212_000, configRepo.lastRecorded)
+    }
+
+    @Test
+    fun backupCreatesNestedDirectoriesLevelByLevel() = runTest {
+        // 坚果云这类服务器不会一次创建多级目录（父目录不存在时 MKCOL 直接 409 / 423），必须一层层建
+        val transport = FakeTransport()
+        val config = FakeConfigRepository(
+            connection = WebDavConnection(
+                baseUrl = "https://dav.jianguoyun.com/dav",
+                username = "me@example.com",
+                remoteDir = "手机备份/trackr_backups"
+            )
+        )
+        val (sut, _, _) = repo(transport, config = config)
+        transport.propfindReply = 404 to "Not Found"
+        val fileName = sut.createAndUploadBackup("pw").getOrThrow()
+        val verbs = transport.calls.map { it.verb }
+        assertEquals(listOf("PROPFIND", "MKCOL", "PROPFIND", "MKCOL", "PUT"), verbs)
+        val urls = transport.calls.map { it.url }
+        // 中文目录名要按 RFC 3986 百分号转义（坚果云对未转义的中文路径会 400）
+        val firstLevel = joinWebDavUrl("https://dav.jianguoyun.com/dav", "手机备份")
+        val secondLevel = joinWebDavUrl("https://dav.jianguoyun.com/dav", "手机备份/trackr_backups")
+        assertTrue(firstLevel.contains("%E6%89%8B"), firstLevel)
+        assertEquals(firstLevel, urls[0])
+        assertEquals(secondLevel, urls[2])
+        assertTrue(urls.last().endsWith(fileName), urls.last())
+    }
+
+    @Test
+    fun existingDirectoriesSkipMkcol() = runTest {
+        val transport = FakeTransport()
+        val (sut, _, _) = repo(transport)
+        transport.propfindReply = 207 to """<D:multistatus xmlns:D="DAV:"/>"""
+        sut.createAndUploadBackup("pw").getOrThrow()
+        // 目录已经在：PROPFIND 207 就够，不该再发 MKCOL
+        assertEquals(listOf("PROPFIND", "PUT"), transport.calls.map { it.verb })
     }
 
     @Test

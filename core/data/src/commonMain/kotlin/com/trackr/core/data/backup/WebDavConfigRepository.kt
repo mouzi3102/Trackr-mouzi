@@ -22,6 +22,12 @@ data class WebDavConnection(
 ) {
     companion object {
         const val DEFAULT_REMOTE_DIR = "trackr_backups"
+
+        /**
+         * 「用坚果云」一键填入的服务器地址。坚果云 WebDAV 只支持 https，且路径必须以 `/dav` 开头
+         * （`normalizeWebDavBaseUrl` 会替用户把没写全的补上）；用户名填账户邮箱、密码填「安全码」。
+         */
+        const val PRESET_JIANGUOYUN_URL = "https://dav.jianguoyun.com/dav/"
         const val DEFAULT_FILE_PREFIX = "trackr_backup"
     }
 }

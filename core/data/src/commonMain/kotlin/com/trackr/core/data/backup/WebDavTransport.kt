@@ -1,5 +1,6 @@
 package com.trackr.core.data.backup
 
+import com.trackr.core.network.remote.common.createWebDavHttpClient
 import com.trackr.core.network.remote.webdav.WebDavClient
 import io.ktor.client.HttpClient
 
@@ -7,6 +8,7 @@ import io.ktor.client.HttpClient
 data class WebDavRaw(val code: Int, val body: String, val safeUrl: String) {
     val isSuccess: Boolean get() = code in 200..299
 }
+
 
 /** 可测替身口：`DefaultBackupRepository` 只通过这个接口摸到网络（单测塞假实现，不发真实请求） */
 interface WebDavTransport {
@@ -38,3 +40,6 @@ class KtorWebDavTransport(httpClient: HttpClient) : WebDavTransport {
 
     private fun WebDavClient.Response.toRaw() = WebDavRaw(code, body, safeUrl)
 }
+
+/** 默认的 WebDAV 传输：用专用客户端（总超时放宽，见 `createWebDavHttpClient`），不共用弱网 20s 的那个 */
+fun defaultWebDavTransport(): WebDavTransport = KtorWebDavTransport(createWebDavHttpClient())

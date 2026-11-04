@@ -16,6 +16,12 @@ object NetworkTimeouts {
     const val WRITE_MS = 12_000L
     /** 下载安装包时两次读取之间允许的最长间隔（不限总时长，网慢也能下完） */
     const val DOWNLOAD_READ_MS = 60_000L
+
+    /**
+     * WebDAV 备份 / 恢复的单次请求总超时。公网网盘（坚果云等）的 TLS 握手 + 上传比调接口慢得多，
+     * 用共用的 [REQUEST_MS] = 20s 会把正常备份判成失败，所以给 WebDAV 单独放宽到 3 分钟。
+     */
+    const val WEBDAV_REQUEST_MS = 180_000L
 }
 
 /** 平台的 HTTP 客户端：Android 用 OkHttp 引擎（连接 / 读 / 写超时设在 OkHttp 上），iOS 用 Darwin 引擎 */
@@ -43,3 +49,11 @@ fun createTrackrHttpClient(
     }
     return if (engine != null) HttpClient(engine, configure) else platformHttpClient(configure)
 }
+
+/**
+ * WebDAV 专用客户端：与共用客户端同样的引擎与配置，只是把总超时放宽到 [NetworkTimeouts.WEBDAV_REQUEST_MS]。
+ * 备份 / 恢复是低频次、可容忍等待的批量传输，不该被弱网接口的 20 秒红线掐断。
+ */
+fun createWebDavHttpClient(): HttpClient =
+    createTrackrHttpClient(requestTimeoutMillis = NetworkTimeouts.WEBDAV_REQUEST_MS)
+

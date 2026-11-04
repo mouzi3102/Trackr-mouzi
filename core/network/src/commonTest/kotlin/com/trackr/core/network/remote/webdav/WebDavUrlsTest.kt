@@ -1,6 +1,8 @@
 package com.trackr.core.network.remote.webdav
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertEquals
 
 /**
@@ -14,10 +16,26 @@ class WebDavUrlsTest {
         val cases = listOf(
             "https://dav.example.com/dav" to "https://dav.example.com/dav/",
             " https://dav.example.com/dav/ " to "https://dav.example.com/dav/",
-            "dav.example.com/dav" to "http://dav.example.com/dav/",
+            "dav.example.com/dav" to "https://dav.example.com/dav/",
             "https://dav.example.com:8443" to "https://dav.example.com:8443/"
         )
         cases.forEach { (input, expected) -> assertEquals(expected, normalizeWebDavBaseUrl(input), input) }
+    }
+
+    @Test
+    fun jianGuoYunUrlIsFixedUp() {
+        // 坚果云两条硬性要求：必须 https、路径以 /dav 开头（应用侧也禁明文，所以缺 scheme 一律按 https 补）
+        val cases = listOf(
+            "dav.jianguoyun.com" to "https://dav.jianguoyun.com/dav/",
+            "http://dav.jianguoyun.com/dav" to "https://dav.jianguoyun.com/dav/",
+            "https://dav.jianguoyun.com" to "https://dav.jianguoyun.com/dav/",
+            "https://dav.jianguoyun.com/mypath" to "https://dav.jianguoyun.com/dav/mypath/",
+            "https://dav.jianguoyun.com/dav/" to "https://dav.jianguoyun.com/dav/",
+            "https://dav.jianguoyun.com/dav/备份" to "https://dav.jianguoyun.com/dav/备份/"
+        )
+        cases.forEach { (input, expected) -> assertEquals(expected, normalizeWebDavBaseUrl(input), input) }
+        assertTrue(isJianguoYunUrl("https://Dav.JiaNguoYun.com/dav"))
+        assertFalse(isJianguoYunUrl("https://nas.local/webdav"))
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.trackr.core.data.backup.RestorePlan
 import com.trackr.core.data.backup.ParsedBackup
 import com.trackr.core.data.backup.WebDavBackupFailure
 import com.trackr.core.data.backup.WebDavConfigRepository
+import com.trackr.core.data.backup.WebDavConnection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,11 +32,17 @@ data class WebDavMessage(
     val what: What,
     val kind: WebDavBackupFailure.Kind? = null,
     /** 文件名等参数（资源里的 %1$s） */
-    val arg: String? = null
+    val arg: String? = null,
+    /** RESTORE_OK：本次从备份补进本地的新收藏条数（资源里的 %1$d） */
+    val addedFavorites: Int = 0,
+    /** RESTORE_OK：备份与本机同 id、保留本机那一份的条数（资源里的 %2$d） */
+    val keptExistingFavorites: Int = 0,
+    /** RESTORE_OK：本次补进来的定时提醒条数（资源里的 %3$d） */
+    val addedReminders: Int = 0
 ) {
     enum class What {
         CONNECT_OK, CONNECT_FAIL, BACKUP_OK, BACKUP_FAIL, LIST_FAIL,
-        DOWNLOAD_FAIL, RESTORE_OK, RESTORE_FAIL, DELETE_OK, DELETE_FAIL, NO_URL
+        DOWNLOAD_FAIL, RESTORE_OK, RESTORE_FAIL, DELETE_OK, DELETE_FAIL, NO_URL, NO_PASSWORD
     }
 }
 
@@ -66,6 +73,9 @@ sealed interface WebDavBackupEvent {
     data class EditRemoteDir(val text: String) : WebDavBackupEvent
     data class EditFilePrefix(val text: String) : WebDavBackupEvent
     data class EditPassword(val text: String) : WebDavBackupEvent
+
+    /** 「用坚果云」：一键填入服务器地址（https + /dav），用户名 / 安全码还得用户自己填 */
+    data object ApplyJianguoYun : WebDavBackupEvent
     data object TestConnection : WebDavBackupEvent
     data object BackupNow : WebDavBackupEvent
     data object RefreshList : WebDavBackupEvent
@@ -110,6 +120,7 @@ class WebDavBackupViewModel(
             is WebDavBackupEvent.EditRemoteDir -> _uiState.update { it.copy(remoteDir = event.text) }
             is WebDavBackupEvent.EditFilePrefix -> _uiState.update { it.copy(filePrefix = event.text) }
             is WebDavBackupEvent.EditPassword -> _uiState.update { it.copy(password = event.text) }
+            WebDavBackupEvent.ApplyJianguoYun -> _uiState.update { it.copy(baseUrl = WebDavConnection.PRESET_JIANGUOYUN_URL) }
             WebDavBackupEvent.Back -> Unit
             is WebDavBackupEvent.MessageShown ->
                 _uiState.update { s -> s.copy(messages = s.messages.filterNot { it.id == event.id }) }
@@ -153,6 +164,10 @@ class WebDavBackupViewModel(
             }
             is WebDavBackupEvent.OpenRestore -> withAction {
                 val password = _uiState.value.password
+                if (password.isBlank()) {
+                    post(WebDavMessage.What.NO_PASSWORD)
+                    return@withAction
+                }
                 val result = backupRepository.downloadBackup(event.file.name, password)
                 val parsed = result.getOrNull()
                 if (parsed == null) {
@@ -180,8 +195,16 @@ class WebDavBackupViewModel(
                     val result = backupRepository.applyRestore(parsed)
                     _uiState.update { it.copy(pendingRestore = null) }
                     pendingParsed = null
-                    if (result.isSuccess) {
-                        // 收藏分组恢复了，但顺序、数据各仓库自己维护；页面不需要再拉任何东西
+                    val outcome = result.getOrNull()
+                    if (outcome != null) {
+                        // 收藏和提醒是合并，报「补进几条 / 保留本地几条」，让人知道没被覆盖
+                        post(
+                            what = WebDavMessage.What.RESTORE_OK,
+                            addedFavorites = outcome.addedFavorites,
+                            keptExistingFavorites = outcome.keptExistingFavorites,
+                            addedReminders = outcome.addedReminders
+                        )
+                    } else if (result.isSuccess) {
                         post(WebDavMessage.What.RESTORE_OK)
                     } else {
                         failWith(WebDavMessage.What.RESTORE_FAIL, result.exceptionOrNull())
@@ -194,6 +217,10 @@ class WebDavBackupViewModel(
             }
             is WebDavBackupEvent.DeleteFile -> withAction {
                 val password = _uiState.value.password
+                if (password.isBlank()) {
+                    post(WebDavMessage.What.NO_PASSWORD)
+                    return@withAction
+                }
                 val result = backupRepository.deleteRemoteFile(event.file.name, password)
                 if (result.isSuccess) {
                     _uiState.update { s -> s.copy(files = s.files.filterNot { it.name == event.file.name }) }
@@ -220,11 +247,15 @@ class WebDavBackupViewModel(
         }
     }
 
-    /** 操作前把表单里的连接设置（除密码）静默存一份；地址为空时提示并返回 false */
+    /** 操作前把表单里的连接设置（除密码）静默存一份；地址或密码为空时提示并返回 false（别拿空密码去打服务器） */
     private suspend fun persistFormAndCheckUrl(): Boolean {
         val state = _uiState.value
         if (state.baseUrl.isBlank()) {
             post(WebDavMessage.What.NO_URL)
+            return false
+        }
+        if (state.password.isBlank()) {
+            post(WebDavMessage.What.NO_PASSWORD)
             return false
         }
         configRepository.saveConnection(
@@ -245,9 +276,17 @@ class WebDavBackupViewModel(
     private fun post(
         what: WebDavMessage.What,
         kind: WebDavBackupFailure.Kind? = null,
-        arg: String? = null
+        arg: String? = null,
+        addedFavorites: Int = 0,
+        keptExistingFavorites: Int = 0,
+        addedReminders: Int = 0
     ) {
-        _uiState.update { s -> s.copy(messages = s.messages + WebDavMessage(nextMessageId++, what, kind, arg)) }
+        _uiState.update { s ->
+            s.copy(
+                messages = s.messages +
+                    WebDavMessage(nextMessageId++, what, kind, arg, addedFavorites, keptExistingFavorites, addedReminders)
+            )
+        }
     }
 }
 

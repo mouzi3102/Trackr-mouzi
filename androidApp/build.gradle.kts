@@ -38,8 +38,8 @@ android {
 
     defaultConfig {
         applicationId = "com.github.u5151561.trackr"
-        versionCode = 10
-        versionName = "0.1.5"
+        versionCode = 11
+        versionName = "0.1.6"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")

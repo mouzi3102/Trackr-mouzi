@@ -4,23 +4,50 @@ package com.trackr.core.network.remote.webdav
  * WebDAV 的 URL 拼装与路径转义（「我的」WebDAV 备份用，模仿 c001apk 的目录即路径设计）。
  *
  * 通用做法：
- * - 服务器地址允许带目录路径（坚果云 `/dav`、群晖 `/webdav`），尾部补 /；没有 scheme 时补 http://（局域网常见）。
+ * - 服务器地址允许带目录路径（坚果云 `/dav`、群晖 `/webdav`），尾部补 /；没写 scheme 时按 **https** 补
+ *   （Android 的 network_security_config 禁明文，补 http:// 等于必失败；局域网 http 请自己写全 scheme）。
  * - 目录和文件名里可能有空格、中文，按 RFC 3986 逐段百分号转义；已经是 `%XX` 的不重复转义。
+ * - 坚果云有两条硬性要求，这里替用户补掉：**必须 https**、路径必须以 `/dav` 开头
+ *   （只填到域名时自动补 `/dav`；填了 `https://dav.jianguoyun.com/mypath` 这类会纠成 `/dav/mypath`）。
  */
+
+/** 「用坚果云」一键填入的服务器地址（用户名 = 账户邮箱，密码 = 坚果云「安全码」而不是登录密码） */
+const val JIANGUOYUN_PRESET_URL = "https://dav.jianguoyun.com/dav/"
+
+/** 地址里是不是坚果云（`dav.jianguoyun.com` / `www.jianguoyun.com` 都算） */
+fun isJianguoYunUrl(raw: String): Boolean = raw.lowercase().contains("jianguoyun.com")
 
 /** 每个路径段都保留的安全字符（RFC 3986 unreserved + sub-delims + @ = 常见 WebDAV 路径里的符号） */
 private const val UNRESERVED_PATH_SEGMENT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@/"
 
 private val HEX_DIGITS = "0123456789abcdefABCDEF"
 
-/** 补 scheme、去空白、保证以 / 结尾 */
+/** 补 scheme（缺省 https）、坚果云纠偏、保证以 / 结尾 */
 fun normalizeWebDavBaseUrl(raw: String): String {
     var url = raw.trim()
+    if (url.isEmpty()) return url
     if (!url.contains("://")) {
-        url = if (url.startsWith("//")) ":$url" else "http://$url"
+        url = if (url.startsWith("//")) ":$url" else "https://$url"
     }
+    if (isJianguoYunUrl(url)) url = withJianguoYunPath(url)
     if (!url.endsWith("/")) url += "/"
     return url
+}
+
+/** 坚果云：强制 https（明文被应用的网络策略禁掉）+ 路径必须以 `/dav` 开头 */
+private fun withJianguoYunPath(url: String): String {
+    val secure = if (url.startsWith("http://")) "https://" + url.removePrefix("http://") else url
+    val schemeEnd = secure.indexOf("://") + 3
+    val schemeHead = secure.substring(0, schemeEnd)
+    val hostAndPath = secure.substring(schemeEnd)
+    val slash = hostAndPath.indexOf('/')
+    val host = if (slash >= 0) hostAndPath.substring(0, slash) else hostAndPath
+    val path = if (slash >= 0) hostAndPath.substring(slash) else ""
+    return when {
+        path.isEmpty() -> "$schemeHead$host/dav"
+        path == "/dav" || path.startsWith("/dav/") -> secure
+        else -> "$schemeHead$host/dav/${path.removePrefix("/")}"
+    }
 }
 
 /** 百分号解码（按 UTF-8 还原字节）；遇到非法的 `%` 序列原样保留该字符（容错，个别 href 坏了不影响其余文件） */

@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.trackr.core.data.backup.RemoteBackupFile
@@ -73,6 +74,9 @@ fun WebDavBackupScreen(
     onEvent: (WebDavBackupEvent) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 密码框默认明文可见（用户要求：填的是坚果云「安全码」，看不见打错一位就白试一次）；点右侧按钮可切成掩码
+    var passwordVisible by rememberSaveable { mutableStateOf(true) }
+
     // 「从备份恢复」的文件选择弹窗。列表还没拉到时点它先去读远端目录，读到之后自动弹出来（只用点一次）
     var showRestorePicker by rememberSaveable { mutableStateOf(false) }
     var pickAfterRefresh by rememberSaveable { mutableStateOf(false) }
@@ -154,6 +158,19 @@ fun WebDavBackupScreen(
                                 .fillMaxWidth()
                                 .testTag("field_webdav_url")
                         )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 坚果云一键填入：地址要带 /dav、只支持 https，手打容易错
+                            TextButton(
+                                onClick = { onEvent(WebDavBackupEvent.ApplyJianguoYun) },
+                                enabled = !state.busy,
+                                modifier = Modifier.testTag("btn_webdav_preset_jianguo")
+                            ) {
+                                Text(stringResource(MeRes.string.me_webdav_preset_jianguo))
+                            }
+                        }
                         OutlinedTextField(
                             value = state.username,
                             onValueChange = { onEvent(WebDavBackupEvent.EditUsername(it)) },
@@ -168,8 +185,25 @@ fun WebDavBackupScreen(
                             onValueChange = { onEvent(WebDavBackupEvent.EditPassword(it)) },
                             label = { Text(stringResource(MeRes.string.me_webdav_password)) },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
+                            visualTransformation = if (passwordVisible) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            trailingIcon = {
+                                TextButton(
+                                    onClick = { passwordVisible = !passwordVisible },
+                                    modifier = Modifier.testTag("btn_webdav_password_visibility")
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            if (passwordVisible) MeRes.string.me_webdav_password_hide
+                                            else MeRes.string.me_webdav_password_show
+                                        )
+                                    )
+                                }
+                            },
                             supportingText = {
                                 // 需求：密码只存本次会话内存。把这句话钉在输入框下，用户看得见
                                 Text(stringResource(MeRes.string.me_webdav_password_hint))
@@ -272,6 +306,15 @@ fun WebDavBackupScreen(
                         Text(stringResource(MeRes.string.me_webdav_restore_entry))
                     }
                 }
+            }
+
+            item(key = "scope") {
+                Text(
+                    text = stringResource(MeRes.string.me_webdav_scope),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("text_webdav_scope")
+                )
             }
 
             item(key = "remote_title") {
@@ -511,11 +554,17 @@ private fun WebDavMessageText(message: WebDavMessage): String {
         WebDavMessage.What.BACKUP_FAIL -> WebDavFailText(message.kind, message.arg)
         WebDavMessage.What.LIST_FAIL -> WebDavFailText(message.kind, message.arg)
         WebDavMessage.What.DOWNLOAD_FAIL -> WebDavFailText(message.kind, message.arg)
-        WebDavMessage.What.RESTORE_OK -> stringResource(MeRes.string.me_webdav_restore_ok)
+        WebDavMessage.What.RESTORE_OK -> stringResource(
+            MeRes.string.me_webdav_restore_ok,
+            message.addedFavorites,
+            message.keptExistingFavorites,
+            message.addedReminders
+        )
         WebDavMessage.What.RESTORE_FAIL -> WebDavFailText(message.kind, message.arg)
         WebDavMessage.What.DELETE_OK -> stringResource(MeRes.string.me_webdav_delete_ok)
         WebDavMessage.What.DELETE_FAIL -> WebDavFailText(message.kind, message.arg)
         WebDavMessage.What.NO_URL -> stringResource(MeRes.string.me_webdav_no_url)
+        WebDavMessage.What.NO_PASSWORD -> stringResource(MeRes.string.me_webdav_no_password)
     }
 }
 

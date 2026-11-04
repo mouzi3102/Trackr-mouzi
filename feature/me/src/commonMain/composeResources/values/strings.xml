@@ -117,7 +117,7 @@
     <string name="me_webdav_server_placeholder">https://dav.jianguoyun.com/dav/</string>
     <string name="me_webdav_username">用户名</string>
     <string name="me_webdav_password">密码</string>
-    <string name="me_webdav_password_hint">密码只留在内存里，本次应用退出就没；建议用支持 HTTPS 的服务</string>
+    <string name="me_webdav_password_hint">密码只留在内存里，退出应用就没。坚果云要填「安全码」（账户信息 → 安全码），用户名填账户邮箱；服务端只支持 https</string>
     <string name="me_webdav_dir">远端目录</string>
     <string name="me_webdav_dir_placeholder">trackr_backups（不存在会在备份时自动创建）</string>
     <string name="me_webdav_prefix">文件名前缀（可选）</string>
@@ -131,6 +131,11 @@
     <string name="me_webdav_files_empty">目录里没有备份文件，先点「立即备份」或用别的设备备份过再刷新</string>
     <string name="me_webdav_files_hint">点「刷新列表」读取远端目录；每条文件用「恢复」按钮恢复，「删除」删掉远端文件</string>
     <string name="me_webdav_restore">恢复</string>
+    <string name="me_webdav_preset_jianguo">用坚果云</string>
+    <string name="me_webdav_password_show">显示</string>
+    <string name="me_webdav_password_hide">隐藏</string>
+    <string name="me_webdav_no_password">先填密码（坚果云填「安全码」，不是登录密码）</string>
+    <string name="me_webdav_scope">备份内容：设置、收藏、搜索记录、城市搜索记录、定时提醒，写成一个 JSON 文件；不含高德 Key 和这个 WebDAV 密码</string>
     <string name="me_webdav_restore_entry">从备份恢复</string>
     <string name="me_webdav_restore_pick_title">选择要恢复的备份</string>
     <string name="me_webdav_restore_pick_hint">选一份下载并列出要恢复的内容，确认后才写入本机；收藏和提醒只补本地没有的</string>
@@ -138,12 +143,12 @@
     <string name="me_webdav_connect_ok">连接成功，目录可用</string>
     <string name="me_webdav_backup_ok">已备份：%1$s</string>
     <string name="me_webdav_restore_confirm">开始恢复</string>
-    <string name="me_webdav_restore_ok">恢复完成：设置、搜索记录按备份写入；收藏和定时提醒只补充本地没有的，本地已有的都保留</string>
+    <string name="me_webdav_restore_ok">恢复完成：收藏新增 %1$d 条、本机已有 %2$d 条保持不动，定时提醒新增 %3$d 条；设置与搜索记录按备份写入</string>
     <string name="me_webdav_delete_ok">已删除远端备份</string>
     <string name="me_webdav_no_url">先填服务器地址</string>
-    <string name="me_webdav_err_auth">认证失败：用户名或密码不对</string>
+    <string name="me_webdav_err_auth">认证失败：用户名或密码不对（坚果云用户名 = 账户邮箱，密码 = 「安全码」，不是登录密码）</string>
     <string name="me_webdav_err_not_found">远端没有这个备份文件，先「刷新列表」试试</string>
-    <string name="me_webdav_err_dir_missing">远端目录不存在或不允许创建，请把目录指到已有目录</string>
+    <string name="me_webdav_err_dir_missing">远端目录不存在或不允许创建：目录留空（建在备份根目录下）或指到已有目录，点「立即备份」会自动逐级建好</string>
     <string name="me_webdav_err_network">连不上服务器：检查网络、地址和端口</string>
     <string name="me_webdav_err_server">服务器返回异常（HTTP %1$s）</string>
     <string name="me_webdav_err_newer">这份备份由更新的版本生成，升级应用后再恢复</string>

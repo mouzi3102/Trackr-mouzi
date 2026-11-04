@@ -1,7 +1,7 @@
 package com.trackr.app.di
 
 import com.trackr.core.data.backup.DefaultBackupRepository
-import com.trackr.core.data.backup.KtorWebDavTransport
+import com.trackr.core.data.backup.defaultWebDavTransport
 import com.trackr.core.data.backup.StoreWebDavConfigRepository
 import com.trackr.core.data.backup.BackupRepository
 import com.trackr.core.data.backup.WebDavConfigRepository
@@ -54,7 +54,8 @@ val appShellModule: Module = module {
  */
 val webDavBackupModule: Module = module {
     single<WebDavConfigRepository> { StoreWebDavConfigRepository(get()) }
-    single<WebDavTransport> { KtorWebDavTransport(get()) }
+        // WebDAV 用专用 Ktor 客户端（总超时放宽到 3 分钟；坚果云这类公网网盘握手 + 上传都慢）
+    single<WebDavTransport> { defaultWebDavTransport() }
     single<BackupRepository> {
         DefaultBackupRepository(
             configRepository = get(),
