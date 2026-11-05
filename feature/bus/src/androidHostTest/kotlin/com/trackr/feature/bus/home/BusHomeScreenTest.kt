@@ -75,9 +75,11 @@ class BusHomeScreenTest {
         session: TrackingSession? = null,
         withFavorites: Boolean = true,
         groups: List<FavoriteGroup> = emptyList(),
-        nearbyLineName: String = "19"
+        nearbyLineName: String = "19",
+        /** 造足够多的附近站点，让列表真的能滚动（顶栏在反复滑动后必须还在） */
+        nearbyCount: Int = 1
     ): BusHomeUiState {
-        val nearby = NearbyStop(
+        val nearbyTemplate = NearbyStop(
             stopId = "n1",
             name = "高新园站",
             distanceMeters = 120,
@@ -91,13 +93,18 @@ class BusHomeScreenTest {
                 )
             )
         )
+        // 只有要造多条（测滚动）时才改名，单个站点保持原名，别动其它用例的断言
+        val nearby = when {
+            nearbyCount <= 1 -> listOf(nearbyTemplate)
+            else -> List(nearbyCount) { i -> nearbyTemplate.copy(stopId = "n${i + 1}", name = "高新园站${i + 1}") }
+        }
         val raw = BusHomeUiState(
             currentCity = shenzhen,
             favorites = if (withFavorites) listOf(fav) else emptyList(),
             favoriteItems = if (withFavorites) listOf(FavoriteItem.Stop(fav, groupId = null, sortOrder = 0)) else emptyList(),
             favoriteGroups = groups,
             trackingSession = session,
-            nearbyStops = listOf(nearby)
+            nearbyStops = nearby
         )
         return BusHomeMapper.derive(BusHomeUiState(), raw)
     }
@@ -108,6 +115,33 @@ class BusHomeScreenTest {
                 BusHomeScreen(state = state, onEvent = { events += it })
             }
         }
+    }
+
+    @Test
+    fun topBar_staysAfterRepeatedScrolling() {
+        // 回归：顶栏是固定 64dp，折叠行程 = 0，交给 Material3 的滚动折叠会把标题算成全透明 ——
+        // 表现为「来回滑动后顶栏加载不出来」。现在顶栏不参与滚动，任何滚动位置都必须在位且可点。
+        setContent(stateOf(nearbyCount = 12))
+        val list = composeTestRule.onNodeWithTag(BusHomeTags.LIST)
+        composeTestRule.onNodeWithTag(BusHomeTags.CITY_TITLE).assertIsDisplayed()
+
+        // 往下滚到底、再滚回来，来回四轮
+        repeat(4) {
+            list.performScrollToNode(hasText("高新园站12"))
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag(BusHomeTags.CITY_TITLE).assertIsDisplayed()
+            composeTestRule.onNodeWithText("深圳").assertIsDisplayed()
+
+            list.performScrollToNode(hasText("高新园站1"))
+            composeTestRule.waitForIdle()
+        }
+
+        // 停在列表中段时也一样：标题在、还能点开切换城市
+        list.performScrollToNode(hasText("高新园站7"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(BusHomeTags.CITY_TITLE).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(BusHomeTags.CITY_TITLE).performClick()
+        assertEquals(BusHomeEvent.OpenCityPicker, events.last())
     }
 
     @Test

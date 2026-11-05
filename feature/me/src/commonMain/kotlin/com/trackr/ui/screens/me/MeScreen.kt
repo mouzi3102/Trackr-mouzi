@@ -5,8 +5,12 @@ package com.trackr.ui.screens.me
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -57,7 +62,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -140,25 +144,46 @@ fun MeScreen(
     var showRemindersSheet by rememberSaveable { mutableStateOf(false) }
 
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // 与公交首页同一处理：固定 64dp 的顶栏没有折叠行程，交给滚动折叠会被算出错误的折叠比例
+    // （公交首页那个「顶栏滑走回不来」就是这么来的）。顶栏不再参与滚动，滚离顶部只用淡入淡出表达。
+    val listState = rememberLazyListState()
+    val scrolled by animateFloatAsState(
+        targetValue = if (listState.canScrollBackward) 1f else 0f,
+        animationSpec = tween(180),
+        label = "meTopBarScrolled"
+    )
     val layoutDirection = LocalLayoutDirection.current
 
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { MeMessageHost(state.userMessages) { onEvent(MeEvent.MessageShown(it)) } },
         topBar = {
-            TopAppBar(
-                title = { Text(text = stringResource(MeRes.string.me_title), fontWeight = FontWeight.Bold) },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                )
+            val containerColor = lerp(
+                MaterialTheme.colorScheme.surface,
+                MaterialTheme.colorScheme.surfaceContainer,
+                scrolled
             )
+            Column {
+                TopAppBar(
+                    title = { Text(text = stringResource(MeRes.string.me_title), fontWeight = FontWeight.Bold) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        // 淡入淡出由 scrolled 控制，两槽同色，避免 Material3 内部硬切
+                        containerColor = containerColor,
+                        scrolledContainerColor = containerColor
+                    )
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = scrolled * 0.7f))
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .consumeWindowInsets(innerPadding),

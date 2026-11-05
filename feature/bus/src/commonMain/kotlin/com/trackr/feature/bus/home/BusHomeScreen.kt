@@ -1,5 +1,17 @@
 package com.trackr.feature.bus.home
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +28,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,7 +39,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -90,19 +102,20 @@ fun BusHomeScreen(
     val fabState = rememberTransitCodeFabState()
     // 底栏（页签）收起时，「乘车码」跟着一起往下走；底栏是根布局画的，这里只读它滑下去的距离
     val bottomBarCollapseOffset = LocalBottomBarCollapseOffset.current
-    // 标题栏和「我的」页一样，用 Material3 原生的滚动折叠：往下滑收成一条，往上滑展开
-    val topBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // 顶栏是固定 64dp 的 TopAppBar：折叠行程 = 0。以前套滚动折叠（exitUntilCollapsed）会让 Material3
+    // 用 0 行程去算折叠比例，来回 fling 之后城市名被算成全透明、再也回不来 —— 就是这次反馈的
+    // 「顶栏加载不出来」。现在顶栏不参与滚动：它永远在位，滚离顶部只用淡入淡出表达。
+    val listState = rememberLazyListState()
 
     Scaffold(
-        modifier = modifier
-            .nestedScroll(fabState.nestedScrollConnection)
-            .nestedScroll(topBarScrollBehavior.nestedScrollConnection),
+        modifier = modifier.nestedScroll(fabState.nestedScrollConnection),
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             BusHomeTopBar(
                 cityName = state.currentCity.cityName,
                 onCityClick = { onEvent(BusHomeEvent.OpenCityPicker) },
-                scrollBehavior = topBarScrollBehavior
+                // 列表滚离顶部多远：0 = 在顶部，1 = 已滚下去（顶栏据此淡入底色和分隔线）
+                scrolled = if (listState.canScrollBackward) 1f else 0f
             )
         },
         floatingActionButton = {
@@ -142,6 +155,7 @@ fun BusHomeScreen(
             }
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag(BusHomeTags.LIST),
@@ -209,41 +223,70 @@ fun BusHomeScreen(
     }
 }
 
-/** 顶栏：大标题是城市名（v3），点它换城市；和「我的」页一样滚动收起成一条 */
+/** 顶栏：大标题是城市名（v3），点它换城市。固定高度、不折叠；滚动时底色与分隔线淡入淡出 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BusHomeTopBar(
     cityName: String,
     onCityClick: () -> Unit,
-    scrollBehavior: TopAppBarScrollBehavior
+    scrolled: Float
 ) {
-    TopAppBar(
-        title = {
-            Surface(
-                onClick = onCityClick,
-                shape = CircleShape,
-                // 透明底：展开 / 收起时都让标题栏自己的底色透出来，只保留点击涟漪
-                color = Color.Transparent,
-                modifier = Modifier.testTag(BusHomeTags.CITY_TITLE)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                ) {
-                    Text(text = cityName, fontWeight = FontWeight.Bold)
-                    Icon(
-                        imageVector = vectorResource(Res.drawable.ic_arrow_drop_down),
-                        contentDescription = stringResource(BusRes.string.bus_home_switch_city)
-                    )
-                }
-            }
-        },
-        scrollBehavior = scrollBehavior,
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
+    // 「在顶部 ⇄ 已滚动」之间 180ms 淡入淡出：底色浮起、描出一条分隔线
+    val scrollProgress by animateFloatAsState(
+        targetValue = scrolled,
+        animationSpec = tween(180),
+        label = "busTopBarScrolled"
     )
+    // 首次组合渐显：即使数据或组合慢半拍，也是淡进来，不会先露出一条空白顶栏
+    val enter = remember { Animatable(0f) }
+    LaunchedEffect(enter) { enter.animateTo(1f, tween(260)) }
+    val containerColor = lerp(
+        MaterialTheme.colorScheme.surface,
+        MaterialTheme.colorScheme.surfaceContainer,
+        scrollProgress
+    )
+    Column {
+        TopAppBar(
+            title = {
+                Surface(
+                    onClick = onCityClick,
+                    shape = CircleShape,
+                    // 透明底：让标题栏自己的底色透出来，只保留点击涟漪
+                    color = Color.Transparent,
+                    modifier = Modifier
+                        .alpha(enter.value)
+                        .testTag(BusHomeTags.CITY_TITLE)
+                ) {
+                    // 换城市时旧名淡出、新名淡进，而不是硬切
+                    Crossfade(targetState = cityName, animationSpec = tween(220), label = "busTopBarCity") { name ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        ) {
+                            Text(text = name, fontWeight = FontWeight.Bold)
+                            Icon(
+                                imageVector = vectorResource(Res.drawable.ic_arrow_drop_down),
+                                contentDescription = stringResource(BusRes.string.bus_home_switch_city)
+                            )
+                        }
+                    }
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                // 两个槽给同一个插值色：淡入淡出由上面统一控制，不让 Material3 自己硬切
+                containerColor = containerColor,
+                scrolledContainerColor = containerColor,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+            )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = scrollProgress * 0.7f))
+        )
+    }
 }
 
 @Composable
