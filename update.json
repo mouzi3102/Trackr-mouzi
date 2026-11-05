@@ -1,12 +1,12 @@
 {
-  "versionCode": 12,
-  "versionName": "0.1.7",
+  "versionCode": 13,
+  "versionName": "0.1.8",
   "minSupportedVersionCode": 1,
-  "changelog": "版本 0.1.7 / versionCode 12，arm64-v8a 单包（约 4.64 MB，V2 签名 `657cc6b3f34a78a3392b9b8aa731eadc95d53998`，与 0.1.5 / 0.1.6 同一把 key，可直接覆盖安装）。\n\n这一版按实际使用反馈把 WebDAV 这一页做了三件事：\n\n1. **登录信息有记忆**：服务器地址、坚果云账户邮箱、**安全码**都会保存，下次进「我的 → WebDAV 备份」直接填好，不用重打。新增「**记住密码**」开关 —— 关掉会**立刻清除**本机存的那份密码（不上传任何东西，只存在应用私有目录）。\n2. **每次备份覆盖上一份**：远端固定只写一个文件 `trackr_backup.json`，不再堆一串带时间戳的历史文件；恢复列表把这个当前备份排在最前，老的时间戳文件仍然列出来，历史不丢。\n3. **对话框做减法**：去掉「远端目录」和「文件名前缀（可选）」两个输入项（这两格在坚果云场景里只会填错），远端目录继续按已保存的值使用；页面上补两行说明：备份包含哪些内容、备份会覆盖上一份。\n\n顺带：删除 4 条不再被引用的文案；新增/更新用例 —— `feature:me` 62 个（含密码回填、关掉「记住密码」即清除、空密码拦截、恢复流程与结果计数），`core:data` 全绿（固定文件名、逐级建目录）。\n\n安装：直接装或覆盖旧的 0.1.x 都行；若你之前装的是别的签名构建，需先卸载。",
-  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.7",
+  "changelog": "顶栏修复：不再套零行程滚动折叠，并加淡入淡出（公交首页 / 我的）\n用户反馈：公交首页顶栏来回上下滑动几次后「加载不出来」——城市名整个不见，只剩一条空白顶栏。\n\n根因：顶栏是固定 64dp 的 TopAppBar，展开高 == 收起高，折叠行程为 0；但套了\n`TopAppBarDefaults.exitUntilCollapsedScrollBehavior()`，Material3 内部按 (收起高 - 展开高) 这个\n0 行程算折叠比例 / 标题 alpha，来回 fling 之后比例停在不恢复的值上，标题 alpha 被算成 0，\n就再也回不来（截图里正是顶栏空白、搜索框贴到状态栏）。这跟上一版把 LargeTopAppBar 换成\nTopAppBar 有关：换组件的同时没换滚动行为，等于把折叠参数留给了一个根本没有折叠空间的栏。\n\n- 顶栏不再参与滚动折叠（公交首页、我的页两处同一处理，保持一致）：删掉 scrollBehavior 与\n  `nestedScroll(...)`，顶栏永远在位；列表状态 (`LazyListState.canScrollBackward`) 只用来表达「已滚离顶部」。\n- 淡入淡出：① 底色 surface ⇄ surfaceContainer 180ms 插值（两槽给同一个色，绕开 Material3 内部硬切）；\n  ② 底部 1px 分隔线随滚动进度淡入淡出；③ 顶栏首次组合 260ms 渐显（数据/组合慢半拍时不会先看到空白顶栏）；\n  ④ 公交首页换城市时城市名 Crossfade 220ms 淡出淡入，不再硬切。\n- 回归用例 `BusHomeScreenTest.topBar_staysAfterRepeatedScrolling`：造 12 条附近站点，来回滚动 4 轮 +\n  中段停留，逐次断言 `CITY_TITLE` / 「深圳」始终 displayed 且还能点开切城市（`feature:bus` 46 个用例全绿，\n  `feature:me` 全绿）。\n- versionCode 13 / versionName \"0.1.8\"。",
+  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.8",
   "downloadUrls": {
-    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.7/trackr-0.1.7-arm64-v8a.apk"
+    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.8/trackr-0.1.8-arm64-v8a.apk"
   },
-  "publishTime": "2026-11-04",
+  "publishTime": "2026-11-05",
   "forceUpdate": false
 }
