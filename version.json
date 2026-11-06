@@ -1,12 +1,12 @@
 {
-  "versionCode": 13,
-  "versionName": "0.1.8",
+  "versionCode": 14,
+  "versionName": "0.1.9",
   "minSupportedVersionCode": 1,
-  "changelog": "版本 0.1.8 / versionCode 13，arm64-v8a 单包，约 4.64 MB（V2 签名 `657cc6b3f34a78a3392b9b8aa731eadc95d53998`，与 0.1.5–0.1.7 同一把 key，可直接覆盖安装）。\n\n修的是你反馈的那条：**公交首页顶栏来回上下滑动几次后「加载不出来」**（城市名整个消失，只剩一条空白顶栏）。\n\n根因：顶栏是固定 64dp 的 `TopAppBar`，展开高 = 收起高、**折叠行程为 0**，却又套了滚动折叠行为 —— Material3 按这个 0 行程去算折叠比例和标题透明度，来回 fling 之后比例卡在不恢复的值上，标题 alpha 被算成 0 就再也回不来。\n\n修法是让顶栏**不参与滚动折叠**（公交首页、「我的」页两处一致）：它永远在位，任何滚动位置都在，照样能点开切城市。\n\n同时按要求加了淡入淡出：\n- 底色 `surface ⇄ surfaceContainer` 180ms 平滑过渡（不再是硬切）\n- 顶栏底部 1px 分隔线随滚动进度淡入 / 淡出\n- 顶栏首次出现 260ms 渐显（数据或组合慢半拍时不会先看到一条空白顶栏）\n- 切换城市时城市名 220ms 交叉淡入淡出\n\n测试：`feature:bus` 46 个用例全绿（含新回归用例：造 12 条附近站点、来回滚 4 轮 + 中段停留，逐次断言顶栏仍在、可点击），`feature:me` 全绿。",
-  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.8",
+  "changelog": "merge: 上游 5151561/Trackr 0.1.6（27 个提交）并入 fork\n上游带来的主要变化（不是我写的，列在这里方便回溯）：\n- 同时追踪多条线路：首页按线分卡、通知按线独立、停止按线停\n- 到站一律独立发通知，错过后补一条「下一班」\n- 「我的」新增通知可靠性体检（提醒收不到时逐环自检）\n- 首页乘车码悬浮按钮可关（线路页底栏圆钮与长辈版一起藏）\n- 数据来源改成弹窗选择（和其他设置行一致）；线路页走向条 / 收藏页 / 顶栏多处修复\n- 染色改为按设备自检（#27）\n\nfork 侧的决策在合并里全部保留：\n- 不集成高德 Android SDK（上游那 8 个 SDK 文件仍不存在；`MapDiagnosticsDialog.kt` 上游又改了一次，\n  这里按 fork 决策继续删除，无残留引用）\n- 只出 arm64-v8a、`hasAndroidMapSdk = false`、`UPDATE_REPO` 指向本仓库、CI 出包 workflow\n- WebDAV 备份整套（坚果云、记住登录信息、单一文件名覆盖、合并式恢复）\n- 配色、顶栏不折叠 + 淡入淡出、EngineMode 自动选源\n\n冲突处理（5 处）：\n- `AGENTS.md`：line / favorites 取上游描述，route 保留 fork「不含高德 SDK」的说明\n- `androidApp/build.gradle.kts`：versionCode 取 14（> 我方 13 与上游 10）、versionName 0.1.9\n- `BusHomeViewModel`：保留 fork 的「重新定位跟定位城市走」（Issue #6）+ 上游的按线停止签名\n- `LineDetailScreen`：取上游——标题栏不再挂数据来源标签、标题 22sp Black\n- `MeScreen`：整页以上游为底重新贴 fork 改动（顶栏不折叠 + 淡入淡出、应用配色行与对话框）；\n  数据来源沿用上游弹窗，`EngineMode.entries` 天然带上「自动」，不再用胶囊行\n- `BusHomeScreenTest`：跟上上游 `trackingSessions` 列表字段，保留 fork 的多站点造数据参数\n\n顺手补一个合并暴露出来的真实缺口：上游新增的设置 `showTransitCodeButton` 没进备份字段，\n现已加入 `SettingsBackup` / collect / applySettings（用例断言恢复后为 false）。\n\n验证：全模块编译扫查通过；:feature:bus、:feature:me、:feature:line、:core:data、:composeApp\n五个模块测试逐个单独跑全部 0 失败（这台 3.9 GB 无 swap 的机器一次跑多个 Robolectric 任务会被 OOM 杀）。",
+  "downloadUrl": "https://github.com/mouzi3102/Trackr-mouzi/releases/tag/v0.1.9",
   "downloadUrls": {
-    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.8/trackr-0.1.8-arm64-v8a.apk"
+    "arm64-v8a": "https://github.com/mouzi3102/Trackr-mouzi/releases/download/v0.1.9/trackr-0.1.9-arm64-v8a.apk"
   },
-  "publishTime": "2026-11-05",
+  "publishTime": "2026-11-06",
   "forceUpdate": false
 }
