@@ -66,6 +66,8 @@ data class SettingsBackup(
     val engineMode: String? = null,
     /** TransitCodeProvider 的名字 */
     val transitCodeProvider: String? = null,
+    /** 首页乘车码悬浮按钮开关（上游 0.1.6 新增的设置，别漏备份） */
+    val showTransitCodeButton: Boolean? = null,
     val nearbyStopsCount: Int? = null,
     val liveNotificationEnabled: Boolean? = null,
     val showOnLockScreen: Boolean? = null,
@@ -194,7 +196,7 @@ data class RestorePlan(
 )
 
 private val settingsFieldGetters: List<(SettingsBackup) -> Any?> = listOf(
-    { it.city }, { it.engineMode }, { it.transitCodeProvider }, { it.nearbyStopsCount },
+    { it.city }, { it.engineMode }, { it.transitCodeProvider }, { it.showTransitCodeButton }, { it.nearbyStopsCount },
     { it.liveNotificationEnabled }, { it.showOnLockScreen }, { it.alertThresholdStops },
     { it.uiMode }, { it.railMode }, { it.appColorPalette }, { it.fontScalePromptDismissed }
 )

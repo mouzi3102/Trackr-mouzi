@@ -1,5 +1,6 @@
 package com.trackr.service
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -27,37 +28,66 @@ import com.trackr.service.vendor.XiaomiFocusAdapter
  * 第 4 步从 object 改成类，由 Koin 提供单例；旧的 [ArrivalAlertManager] 暂时转发到这里（第 12 步删）。
  *
  * @param liveProgressNotifier 读「实时通知」开关，与常驻通知共用同一个兜底值
+ * @param showOnLockScreenSetting 读「锁屏显示」开关（D3），和常驻通知同一份设置；读不到按开
  */
 class ArrivalAlertNotifier(
-    private val liveProgressNotifier: LiveProgressNotifier
+    private val liveProgressNotifier: LiveProgressNotifier,
+    private val showOnLockScreenSetting: () -> Boolean = { true }
 ) {
+
+    /**
+     * 强提醒统一走这里建通知。
+     *
+     * 锁屏可见性跟「我的 → 锁屏显示」走，判定和常驻通知一致：开着用 PUBLIC（锁屏上看得到线路和站名），
+     * 关着用 PRIVATE。**不能不管**：`Notification.visibility` 默认就是 PRIVATE，用户把系统锁屏设成
+     * 「隐藏敏感内容」时，这五条提醒在锁屏上会被抹成「内容已隐藏」——震动照响，但人掏出手机看到一条空通知，
+     * 而那一刻正是「车到站了，快上车」。
+     */
+    private fun alertNotification(
+        context: Context,
+        title: String,
+        content: String,
+        category: String,
+        requestCode: Int
+    ): Notification {
+        val lockScreenOn = runCatching { showOnLockScreenSetting() }.getOrDefault(true)
+        return NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_trackr)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(category)
+            .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(
+                if (lockScreenOn) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE
+            )
+            .setContentIntent(createMainActivityPendingIntent(context, requestCode))
+            .build()
+    }
 
     fun triggerTrackingExpired(context: Context, state: TrackingSessionState) {
         ensureNotificationChannel(context)
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-            .setSmallIcon(R.drawable.ic_stat_trackr)
-            .setContentTitle("追踪已停止")
-            .setContentText("${state.lineName} 追踪已超过 ${maxTrackingDurationText()}，已停止追踪。")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setAutoCancel(true)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setContentIntent(createMainActivityPendingIntent(context, NOTIFICATION_ID_EXPIRED))
-            .build()
+        val notification = alertNotification(
+            context = context,
+            title = "追踪已停止",
+            content = "${state.lineName} 追踪已超过 ${maxTrackingDurationText()}，已停止追踪。",
+            category = NotificationCompat.CATEGORY_STATUS,
+            requestCode = NOTIFICATION_ID_EXPIRED
+        )
         runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_EXPIRED, notification) }
     }
 
     fun triggerTrackingInterrupted(context: Context, state: TrackingSessionState) {
         ensureNotificationChannel(context)
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-            .setSmallIcon(R.drawable.ic_stat_trackr)
-            .setContentTitle("追踪已中断")
-            .setContentText("${state.lineName} 追踪未能自动接续，请打开应用重试。")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setAutoCancel(true)
-            .setContentIntent(createMainActivityPendingIntent(context, NOTIFICATION_ID_INTERRUPTED))
-            .build()
+        val notification = alertNotification(
+            context = context,
+            title = "追踪已中断",
+            content = "${state.lineName} 追踪未能自动接续，请打开应用重试。",
+            category = NotificationCompat.CATEGORY_STATUS,
+            requestCode = NOTIFICATION_ID_INTERRUPTED
+        )
         runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_INTERRUPTED, notification) }
     }
 
@@ -94,9 +124,10 @@ class ArrivalAlertNotifier(
     /**
      * 当车辆距离目标候车站 stopsRemaining <= state.alertThresholdStops 时触发强提醒通知及三段式节奏震动
      */
-    fun triggerApproachingAlert(context: Context, state: TrackingSessionState) {
+    fun triggerApproachingAlert(context: Context, state: TrackingSessionState, sessionId: String = "") {
         ensureNotificationChannel(context)
-        cancelCounterpart(context, NOTIFICATION_ID_ARRIVED)
+        val notificationId = alertNotificationId(NOTIFICATION_ID_APPROACHING, sessionId)
+        cancelCounterpart(context, alertNotificationId(NOTIFICATION_ID_ARRIVED, sessionId))
 
         var posted = false
         if (shouldPostStandaloneNotification(context, state)) {
@@ -108,22 +139,16 @@ class ArrivalAlertNotifier(
             val title = "【即将到站】${state.lineName}"
             val content = "距 ${state.targetStopName} 还有 ${state.stopsRemaining} 站$etaText，请准备上车/下车！"
 
-            val contentPendingIntent = createMainActivityPendingIntent(context, NOTIFICATION_ID_APPROACHING)
-
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-                .setSmallIcon(R.drawable.ic_stat_trackr)
-                .setContentTitle(title)
-                .setContentText(content)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                .setAutoCancel(true)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setContentIntent(contentPendingIntent)
-                .build()
+            val notification = alertNotification(
+                context = context,
+                title = title,
+                content = content,
+                category = NotificationCompat.CATEGORY_REMINDER,
+                requestCode = notificationId
+            )
 
             try {
-                NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_APPROACHING, notification)
+                NotificationManagerCompat.from(context).notify(notificationId, notification)
                 posted = areNotificationsEnabled(context)
             } catch (e: SecurityException) {
                 Log.w(TAG, "Cannot post approaching alert: missing POST_NOTIFICATIONS permission", e)
@@ -143,32 +168,28 @@ class ArrivalAlertNotifier(
     fun triggerArrivedAlert(
         context: Context,
         state: TrackingSessionState,
-        forceStandalone: Boolean = false
+        forceStandalone: Boolean = false,
+        sessionId: String = ""
     ) {
         ensureNotificationChannel(context)
-        cancelCounterpart(context, NOTIFICATION_ID_APPROACHING)
+        val notificationId = alertNotificationId(NOTIFICATION_ID_ARRIVED, sessionId)
+        cancelCounterpart(context, alertNotificationId(NOTIFICATION_ID_APPROACHING, sessionId))
 
         var posted = false
         if (forceStandalone || shouldPostStandaloneNotification(context, state)) {
             val title = "【车辆已到站】${state.lineName}"
             val content = "${state.lineName} 已到达 ${state.targetStopName}！请注意上车/下车。"
 
-            val contentPendingIntent = createMainActivityPendingIntent(context, NOTIFICATION_ID_ARRIVED)
-
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-                .setSmallIcon(R.drawable.ic_stat_trackr)
-                .setContentTitle(title)
-                .setContentText(content)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_REMINDER)
-                .setAutoCancel(true)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setContentIntent(contentPendingIntent)
-                .build()
+            val notification = alertNotification(
+                context = context,
+                title = title,
+                content = content,
+                category = NotificationCompat.CATEGORY_REMINDER,
+                requestCode = notificationId
+            )
 
             try {
-                NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_ARRIVED, notification)
+                NotificationManagerCompat.from(context).notify(notificationId, notification)
                 posted = areNotificationsEnabled(context)
             } catch (e: SecurityException) {
                 Log.w(TAG, "Cannot post arrived alert: missing POST_NOTIFICATIONS permission", e)
@@ -185,32 +206,32 @@ class ArrivalAlertNotifier(
     /**
      * 当换乘行程第一程到达换乘站时触发换乘提醒及节拍震动，通知用户准备下车换乘
      */
-    fun triggerTransferAlert(context: Context, transferStationName: String, nextLineName: String) {
+    fun triggerTransferAlert(
+        context: Context,
+        transferStationName: String,
+        nextLineName: String,
+        sessionId: String = ""
+    ) {
         ensureNotificationChannel(context)
+        val notificationId = alertNotificationId(NOTIFICATION_ID_TRANSFER, sessionId)
         // 换乘站即本程下车站：只保留换乘提醒，清掉同一站的到站 / 临近通知，避免连发两条
-        cancelCounterpart(context, NOTIFICATION_ID_ARRIVED)
-        cancelCounterpart(context, NOTIFICATION_ID_APPROACHING)
+        cancelCounterpart(context, alertNotificationId(NOTIFICATION_ID_ARRIVED, sessionId))
+        cancelCounterpart(context, alertNotificationId(NOTIFICATION_ID_APPROACHING, sessionId))
 
         val title = "【换乘提醒】到达 $transferStationName"
         val content = "已到达换乘站 $transferStationName，已自动切换追踪下一程：$nextLineName"
 
-        val contentPendingIntent = createMainActivityPendingIntent(context, NOTIFICATION_ID_TRANSFER)
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-            .setSmallIcon(R.drawable.ic_stat_trackr)
-            .setContentTitle(title)
-            .setContentText(content)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(true)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setContentIntent(contentPendingIntent)
-            .build()
+        val notification = alertNotification(
+            context = context,
+            title = title,
+            content = content,
+            category = NotificationCompat.CATEGORY_REMINDER,
+            requestCode = notificationId
+        )
 
         var posted = false
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_TRANSFER, notification)
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
             posted = areNotificationsEnabled(context)
         } catch (e: SecurityException) {
             Log.w(TAG, "Cannot post transfer alert: missing POST_NOTIFICATIONS permission", e)
@@ -220,6 +241,48 @@ class ArrivalAlertNotifier(
         // 独立通知由渠道负责振动；没发出去时才手动振动
         if (!posted) {
             performWaveformVibration(context, TRANSFER_VIBRATION_PATTERN)
+        }
+    }
+
+    /**
+     * 没赶上这班车：车已经开走，人还在原地等。
+     *
+     * 不提醒的话，只在后台把追踪悄悄换成下一班，用户会以为自己还在等原来那班，等到发现时已经晚了。
+     * 顺手撤掉「车已到站」那条——车都走了，再挂着只会误导。
+     */
+    fun triggerMissedBusAlert(context: Context, state: TrackingSessionState, sessionId: String = "") {
+        ensureNotificationChannel(context)
+        val notificationId = alertNotificationId(NOTIFICATION_ID_MISSED, sessionId)
+        cancelCounterpart(context, alertNotificationId(NOTIFICATION_ID_ARRIVED, sessionId))
+        cancelCounterpart(context, alertNotificationId(NOTIFICATION_ID_APPROACHING, sessionId))
+
+        val stop = state.targetStopName.ifBlank { "上车站" }
+        val next = when {
+            state.stopsRemaining == 0 -> "下一班已经到 $stop 了，快跑"
+            state.etaSeconds > 0 -> "下一班约 ${RouteProjectionMath.formatEtaText(state.etaSeconds)}到"
+            state.stopsRemaining > 0 -> "下一班还有 ${state.stopsRemaining} 站"
+            else -> "暂时还没有开往 $stop 的车"
+        }
+
+        val notification = alertNotification(
+            context = context,
+            title = "错过 ${state.lineName} 了",
+            content = "$next，仍在追踪 $stop",
+            category = NotificationCompat.CATEGORY_REMINDER,
+            requestCode = notificationId
+        )
+
+        var posted = false
+        try {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+            posted = areNotificationsEnabled(context)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot post missed-bus alert: missing POST_NOTIFICATIONS permission", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post missed-bus alert notification", e)
+        }
+        if (!posted) {
+            performWaveformVibration(context, MISSED_VIBRATION_PATTERN)
         }
     }
 
@@ -268,6 +331,13 @@ class ArrivalAlertNotifier(
 
     private fun areNotificationsEnabled(context: Context): Boolean =
         runCatching { NotificationManagerCompat.from(context).areNotificationsEnabled() }.getOrDefault(true)
+
+    /**
+     * 同时追多项时每项的到站 / 临近提醒各用一组 id：不同项的提醒不互相顶掉、也不互相取消。
+     * [sessionId] 为空时还是原来的固定 id（旧调用 / 没有会话的场景）。
+     */
+    private fun alertNotificationId(base: Int, sessionId: String): Int =
+        if (sessionId.isEmpty()) base else base * 4096 + (sessionId.hashCode() and 0xFFF)
 
     private fun cancelCounterpart(context: Context, notificationId: Int) {
         try {
@@ -342,9 +412,11 @@ class ArrivalAlertNotifier(
         // 追踪已停止 / 已中断用独立的 id，否则会顶掉同一时刻的换乘提醒
         const val NOTIFICATION_ID_EXPIRED = 10005
         const val NOTIFICATION_ID_INTERRUPTED = 10006
+        const val NOTIFICATION_ID_MISSED = 10007
 
         private val APPROACHING_VIBRATION_PATTERN = longArrayOf(0, 280, 120, 280, 120, 400)
         private val TRANSFER_VIBRATION_PATTERN = longArrayOf(0, 300, 100, 300, 100, 300)
+        private val MISSED_VIBRATION_PATTERN = longArrayOf(0, 350, 150, 350)
         private const val ARRIVED_VIBRATION_DURATION_MS = 800L
     }
 }

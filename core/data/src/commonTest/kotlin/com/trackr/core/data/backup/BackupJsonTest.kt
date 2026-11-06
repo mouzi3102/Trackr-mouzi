@@ -35,6 +35,7 @@ class BackupJsonTest {
             city = TransitCity(cityId = "021", cityName = "上海", pinyin = "shanghai"),
             engineMode = EngineMode.MYGOLBS.name,
             transitCodeProvider = TransitCodeProvider.ALIPAY.id,
+            showTransitCodeButton = false,
             nearbyStopsCount = 6,
             liveNotificationEnabled = false,
             showOnLockScreen = true,
@@ -218,7 +219,7 @@ class BackupJsonTest {
         val payload = samplePayload()
         val plan = planRestore(payload, decodeBackupFavorites(payload.favorites))
         assertTrue(plan.replaceSettings && plan.replaceSearchHistory && plan.replaceFavorites)
-        assertEquals(9, plan.settingsFieldCount)
+        assertEquals(10, plan.settingsFieldCount)
         assertEquals(2, plan.searchHistoryCount)
         assertEquals(
             setOf(RestoredSection.SETTINGS, RestoredSection.SEARCH_HISTORY, RestoredSection.FAVORITES),

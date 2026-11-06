@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -61,7 +63,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,8 +76,6 @@ import androidx.compose.ui.unit.sp
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
-import com.trackr.core.designsystem.component.DataSourceBadge
-import com.trackr.core.designsystem.component.DataSourceBadgeStyle
 import com.trackr.core.designsystem.component.FullscreenErrorView
 import com.trackr.core.designsystem.component.FullscreenLoadingView
 import com.trackr.core.designsystem.resources.Res
@@ -90,11 +95,11 @@ import com.trackr.core.designsystem.resources.transit_code
 import com.trackr.core.designsystem.theme.busColors
 import com.trackr.core.model.BusLineDetail
 import com.trackr.core.model.BusStop
-import com.trackr.core.model.DataSourceType
 import com.trackr.core.model.LineOperatingState
 import com.trackr.core.model.LiveBus
 import com.trackr.core.model.RailMode
 import com.trackr.core.model.TransitCodeProvider
+import com.trackr.core.model.displayLineName
 import com.trackr.feature.line.resources.Res as LineRes
 import com.trackr.feature.line.resources.line_detail_error
 import com.trackr.feature.line.resources.line_detail_fare
@@ -103,6 +108,7 @@ import com.trackr.feature.line.resources.line_detail_loading
 import com.trackr.feature.line.resources.line_detail_reminder
 import com.trackr.feature.line.resources.line_detail_reverse
 import com.trackr.feature.line.resources.line_detail_stop_count
+import com.trackr.feature.line.resources.line_detail_switching
 import com.trackr.feature.line.resources.line_detail_timetable
 import com.trackr.feature.line.resources.line_detail_track_this
 import com.trackr.ui.components.message.HostMessage
@@ -111,7 +117,6 @@ import com.trackr.ui.components.HorizontalRailColumnWidth
 import com.trackr.ui.components.HorizontalRouteRail
 import com.trackr.ui.components.ScheduledReminderDialog
 import com.trackr.ui.components.TransitCodeBottomSheet
-import com.trackr.ui.components.horizontalRailCardHeight
 import com.trackr.ui.components.routeRailItemIndex
 import com.trackr.ui.components.routeRailItems
 import com.trackr.ui.components.timetable.TimetableBottomSheet
@@ -119,6 +124,7 @@ import com.trackr.ui.screens.linedetail.components.BusFollowContent
 import com.trackr.ui.screens.linedetail.components.BusListContent
 import com.trackr.ui.screens.linedetail.components.FavoriteGroupPickerSheet
 import com.trackr.ui.screens.linedetail.components.StationArrivalContent
+import com.trackr.ui.screens.linedetail.components.overflowMarquee
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -185,11 +191,10 @@ fun LineDetailScreen(
     // 走向条样式是「我的」里的全局设置，线路页不提供切换入口
     val isHorizontalRail = state.railMode == RailMode.Horizontal
     // 从某个站点点进来：走向条直接跳到那一站，只跳一次。主卡固定在顶部，不会跟着跳走。
-    // 没带站序（搜索、收藏等）就保持从顶部开始；换向、选站、轮询都不会再跳。
+    // 没带站序（搜索、收藏等）就保持从顶部开始；选站、轮询都不会再跳（换向另有滚动，见下）
     var didJumpToEntryStop by rememberSaveable { mutableStateOf(false) }
     // 主卡可以收起成一行，把高度让给走向条；收起状态跟着页面保存
     var cardCollapsed by rememberSaveable { mutableStateOf(false) }
-    val railCardHeight = horizontalRailCardHeight(static?.stops.orEmpty())
 
     LaunchedEffect(static?.stops, state.entryStopOrder) {
         val stops = static?.stops ?: return@LaunchedEffect
@@ -205,7 +210,7 @@ fun LineDetailScreen(
         }
     }
 
-    // 在「我的」改了走向条样式再回来：把新视图滚到当前候车站；换向、选站、轮询都不滚
+    // 在「我的」改了走向条样式再回来：把新视图滚到当前候车站；选站、轮询都不滚
     var previousRailMode by remember { mutableStateOf(state.railMode) }
     LaunchedEffect(state.railMode) {
         if (previousRailMode == state.railMode) return@LaunchedEffect
@@ -218,6 +223,24 @@ fun LineDetailScreen(
             stripScrollState.animateScrollTo(with(density) { (HorizontalRailColumnWidth * target).roundToPx() })
         } else {
             listState.animateScrollToItem(target)
+        }
+    }
+
+    // 换向后站表整个反过来：把走向条滚到新方向上的候车站（初次加载只记下线路，不滚）
+    var lastLineId by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(static?.line?.lineId) {
+        val lineId = static?.line?.lineId ?: return@LaunchedEffect
+        val previous = lastLineId
+        lastLineId = lineId
+        if (previous == null || previous == lineId) return@LaunchedEffect
+        val stops = static.stops
+        val order = state.selectedStop?.order ?: return@LaunchedEffect
+        if (stops.none { it.order == order }) return@LaunchedEffect
+        val target = (routeRailItemIndex(stops, order) - 2).coerceAtLeast(0)
+        if (isHorizontalRail) {
+            stripScrollState.scrollTo(with(density) { (HorizontalRailColumnWidth * target).roundToPx() })
+        } else {
+            listState.scrollToItem(target)
         }
     }
 
@@ -234,8 +257,7 @@ fun LineDetailScreen(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             LineTopBar(
-                title = static?.line?.name ?: state.lineNameHint,
-                source = static?.line?.source,
+                title = static?.line?.displayLineName?.takeIf { it.isNotBlank() } ?: state.lineNameHint,
                 isFavorite = state.isFavorite,
                 actionsEnabled = static != null && state.selectedStop != null,
                 onBack = { onEvent(LineDetailEvent.Back) },
@@ -248,7 +270,13 @@ fun LineDetailScreen(
                 LineBottomBar(
                     isTracking = state.isTrackingThisStop,
                     canTrack = state.selectedStop != null && state.live != null,
+                    // 没有反向线路（单程 / 环线 / 上游缺数据）就不占位；lineId 为空同样当没有
+                    canSwitchDirection = static.reverseDirection?.lineId?.isNotBlank() == true,
+                    isSwitchingDirection = state.isSwitchingDirection,
+                    // 「我的」里关掉「显示乘车码按钮」后，底栏这个圆钮和首页悬浮按钮一起消失
+                    showTransitCode = state.showTransitCodeButton,
                     onToggleTracking = { onEvent(LineDetailEvent.ToggleTracking) },
+                    onSwitchDirection = { onEvent(LineDetailEvent.SwitchDirection) },
                     onOpenTransitCode = { onEvent(LineDetailEvent.OpenTransitCode) }
                 )
             }
@@ -293,20 +321,15 @@ fun LineDetailScreen(
                     .padding(top = innerPadding.calculateTopPadding())
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val viewportHeight = maxHeight
                     val live = state.live
                     val busesByOrder = remember(live?.buses) { live?.buses.orEmpty().groupBy { it.order } }
                     val hasError = state.errorMessage != null
-                    // 主卡最多占六成；横排时再给横条和底栏让位，保证横线整个露出来
-                    val cardMaxHeight = if (isHorizontalRail) {
-                        val reserved = 120.dp + innerPadding.calculateBottomPadding() +
-                            if (hasError) 48.dp else 0.dp
-                        (maxHeight - reserved - railCardHeight - 16.dp)
-                            .coerceAtLeast(64.dp)
-                            .coerceAtMost(maxHeight * 0.6f)
-                    } else {
-                        maxHeight * 0.6f
-                    }
-                    // 横排没有可上下滚的列表；加一层纵向滚动，下拉刷新才收得到手势
+                    // 竖排：主卡固定在顶部、最多占六成，剩下的给站点列表，内容多在卡内滚。
+                    // 横排：整页一起滚，主卡按内容自然高（能完整展开），不再给它限高。
+                    val cardMaxHeight = viewportHeight * 0.6f
+                    // 横排没有可上下滚的列表；加一层纵向滚动，下拉刷新才收得到手势，
+                    // 主卡展开后超过一屏也能滚下去看走向条
                     val contentModifier = if (isHorizontalRail) {
                         Modifier
                             .fillMaxSize()
@@ -316,54 +339,74 @@ fun LineDetailScreen(
                         Modifier.fillMaxSize()
                     }
                     Column(modifier = contentModifier) {
-                        DirectionHeader(
-                            static = static,
-                            onSwitchDirection = { onEvent(LineDetailEvent.SwitchDirection) },
-                            onOpenTimetable = { onEvent(LineDetailEvent.OpenTimetable) }
-                        )
-                        if (hasError) {
-                            ErrorBanner(
-                                text = state.errorMessage.orEmpty(),
-                                onRetry = { onEvent(LineDetailEvent.Refresh(fromPull = false)) }
+                        // 横排要算横条还有多少剩余空间，先量出方向头 + 主卡的高度
+                        var topBlockHeightPx by remember { mutableStateOf(0) }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { topBlockHeightPx = it.size.height }
+                        ) {
+                            DirectionHeader(
+                                static = static,
+                                onOpenTimetable = { onEvent(LineDetailEvent.OpenTimetable) }
+                            )
+                            if (hasError) {
+                                ErrorBanner(
+                                    text = state.errorMessage.orEmpty(),
+                                    onRetry = { onEvent(LineDetailEvent.Refresh(fromPull = false)) }
+                                )
+                            }
+                            // 主卡：竖排固定在顶部，不跟站点列表一起滚；横排整页一起滚
+                            HeroCard(
+                                state = state,
+                                static = static,
+                                onEvent = onEvent,
+                                onPickStop = {
+                                    val order = state.selectedStop?.order ?: return@HeroCard
+                                    val index = routeRailItemIndex(static.stops, order)
+                                    val target = (index - 2).coerceAtLeast(0)
+                                    scope.launch {
+                                        if (isHorizontalRail) {
+                                            stripScrollState.animateScrollTo(
+                                                with(density) { (HorizontalRailColumnWidth * target).roundToPx() }
+                                            )
+                                        } else {
+                                            listState.animateScrollToItem(target)
+                                        }
+                                    }
+                                },
+                                modifier = if (isHorizontalRail) Modifier else Modifier.heightIn(max = cardMaxHeight),
+                                // 横排整页一起滚：主卡不限高，卡内也不再滚一层，否则手势被主卡吃掉、页面滚不动
+                                scrollable = !isHorizontalRail,
+                                collapsed = cardCollapsed,
+                                onToggleCollapsed = { cardCollapsed = !cardCollapsed }
                             )
                         }
-                        // 主卡固定在顶部，不跟走向条一起滚：看卡片和看当前站可以同时
-                        HeroCard(
-                            state = state,
-                            static = static,
-                            onEvent = onEvent,
-                            onPickStop = {
-                                val order = state.selectedStop?.order ?: return@HeroCard
-                                val index = routeRailItemIndex(static.stops, order)
-                                val target = (index - 2).coerceAtLeast(0)
-                                scope.launch {
-                                    if (isHorizontalRail) {
-                                        stripScrollState.animateScrollTo(
-                                            with(density) { (HorizontalRailColumnWidth * target).roundToPx() }
-                                        )
-                                    } else {
-                                        listState.animateScrollToItem(target)
-                                    }
-                                }
-                            },
-                            modifier = Modifier.heightIn(max = cardMaxHeight),
-                            collapsed = cardCollapsed,
-                            onToggleCollapsed = { cardCollapsed = !cardCollapsed }
-                        )
                         if (isHorizontalRail) {
-                            // 横排只有一条横线，没有竖排站点列表；卡片就贴在主卡下面，剩下的留给页面底色
-                            HorizontalRouteRail(
-                                stops = static.stops,
-                                buses = live?.buses.orEmpty(),
-                                selectedStop = state.selectedStop,
-                                selectedBusId = state.followedBusId,
-                                scrollState = stripScrollState,
-                                onSelectStop = { onEvent(LineDetailEvent.SelectStop(it)) },
-                                onSelectBus = { onEvent(LineDetailEvent.FollowBus(it)) },
+                            // 横排只有一条横线，没有竖排站点列表；不给卡片外壳，直接铺在页面背景上，
+                            // 左右贴满整宽（轨道自身左右留 16dp）。
+                            // 位置：主卡到页面底部的剩余空间里垂直居中（设计稿 §3）；主卡内容多、超过一屏时
+                            // 这块区域只按横条自身高度排，整页一起上下滚
+                            val remainingHeight = with(density) {
+                                viewportHeight - topBlockHeightPx.toDp() - innerPadding.calculateBottomPadding()
+                            }
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                            )
+                                    .heightIn(min = remainingHeight.coerceAtLeast(0.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                HorizontalRouteRail(
+                                    stops = static.stops,
+                                    buses = live?.buses.orEmpty(),
+                                    selectedStop = state.selectedStop,
+                                    selectedBusId = state.followedBusId,
+                                    scrollState = stripScrollState,
+                                    onSelectStop = { onEvent(LineDetailEvent.SelectStop(it)) },
+                                    onSelectBus = { onEvent(LineDetailEvent.FollowBus(it)) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         } else {
                             LazyColumn(
                                 state = listState,
@@ -438,7 +481,6 @@ fun LineDetailScreen(
 @Composable
 private fun LineTopBar(
     title: String,
-    source: DataSourceType?,
     isFavorite: Boolean,
     actionsEnabled: Boolean,
     onBack: () -> Unit,
@@ -447,26 +489,13 @@ private fun LineTopBar(
 ) {
     TopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = title,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                if (source != null) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    DataSourceBadge(
-                        style = when (source) {
-                            DataSourceType.CHELAILE -> DataSourceBadgeStyle.CHELAILE
-                            DataSourceType.MYGOLBS -> DataSourceBadgeStyle.MYGOLBS
-                        },
-                        text = source.displayName
-                    )
-                }
-            }
+            Text(
+                text = title,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         },
         navigationIcon = {
             IconButton(onClick = onBack) {
@@ -492,11 +521,10 @@ private fun LineTopBar(
     )
 }
 
-/** 「始发 → 终点  换向」+「运营 05:30–23:30 · 票价 2元 · 共 24 站 · 时刻表 ›」。只读静态部分，轮询时不重组 */
+/** 「始发 → 终点」+「运营 05:30–23:30 · 票价 2元 · 共 24 站 · 时刻表 ›」。只读静态部分，轮询时不重组 */
 @Composable
 private fun DirectionHeader(
     static: LineStatic,
-    onSwitchDirection: () -> Unit,
     onOpenTimetable: () -> Unit
 ) {
     val line = static.line
@@ -505,38 +533,16 @@ private fun DirectionHeader(
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "${line.startStop} → ${line.endStop}",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            // 反向切换只在这里一处（v3「换向贴在起终点旁」）
-            if (static.reverseDirection != null) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    onClick = onSwitchDirection,
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = vectorResource(Res.drawable.ic_swap),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = stringResource(LineRes.string.line_detail_reverse), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
+        // 换向已经挪到底栏，方向行整行留给站名；站名太长时在行里滚，不打省略号
+        Text(
+            text = "${line.startStop} → ${line.endStop}",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.overflowMarquee()
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             val meta = listOfNotNull(
                 stringResource(LineRes.string.line_detail_hours, line.firstTime.ifEmpty { "—" }, line.lastTime.ifEmpty { "—" }),
@@ -582,7 +588,12 @@ private fun ErrorBanner(text: String, onRetry: () -> Unit) {
     }
 }
 
-/** 主卡：到站 / 全部车辆 / 单车跟随 三种内容切换；固定在页面顶部，内容超过限高时卡内自己滚 */
+/**
+ * 主卡：到站 / 全部车辆 / 单车跟随 三种内容切换；固定在页面顶部。
+ *
+ * @param scrollable 内容超过限高时卡内自己滚（竖排：主卡限高、页面不滚）；
+ *   横排整页一起滚，传 false，不然卡内滚和外层滚抢手势
+ */
 @Composable
 private fun HeroCard(
     state: LineDetailUiState,
@@ -590,9 +601,11 @@ private fun HeroCard(
     onEvent: (LineDetailEvent) -> Unit,
     onPickStop: () -> Unit,
     modifier: Modifier = Modifier,
+    scrollable: Boolean = true,
     collapsed: Boolean = false,
     onToggleCollapsed: (() -> Unit)? = null
 ) {
+    val innerScrollState = rememberScrollState()
     Card(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.busColors.stationCardContainer),
@@ -619,7 +632,7 @@ private fun HeroCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
-                .verticalScroll(rememberScrollState())
+                .then(if (scrollable) Modifier.verticalScroll(innerScrollState) else Modifier)
         ) { (mode, isCollapsed) ->
             when (mode) {
                 PanelMode.STATION_CARD -> StationArrivalContent(
@@ -668,14 +681,24 @@ private fun rememberLineDetail(static: LineStatic, live: LineLive?): BusLineDeta
     )
 }
 
-/** 底栏：主按钮 + 乘车码（和首页悬浮按钮同一个位置）；自己让开系统导航栏 */
+/**
+ * 底栏：主按钮 + 换向 + 乘车码（和首页悬浮按钮同一个位置）；自己让开系统导航栏。
+ * 换向是高频动作，从方向行挪到这里常驻；反向线路不存在时不渲染，主按钮自动撑满。
+ * [showTransitCode] 是「我的」里的开关（关掉后乘车码圆钮不占位，主按钮和换向铺满）。
+ */
 @Composable
 private fun LineBottomBar(
     isTracking: Boolean,
     canTrack: Boolean,
+    canSwitchDirection: Boolean,
+    isSwitchingDirection: Boolean,
+    showTransitCode: Boolean,
     onToggleTracking: () -> Unit,
+    onSwitchDirection: () -> Unit,
     onOpenTransitCode: () -> Unit
 ) {
+    val switchDirectionLabel = stringResource(LineRes.string.line_detail_reverse)
+    val switchingDirectionLabel = stringResource(LineRes.string.line_detail_switching)
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
@@ -687,24 +710,32 @@ private fun LineBottomBar(
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            // 三钮并排时缝隙收窄，320dp 小屏也放得下「追踪这班车」
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (isTracking) {
                 OutlinedButton(
                     onClick = onToggleTracking,
                     shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp)
                 ) {
-                    Text(text = stringResource(Res.string.action_end_tracking), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = stringResource(Res.string.action_end_tracking),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
                 }
             } else {
                 Button(
                     onClick = onToggleTracking,
                     enabled = canTrack,
                     shape = MaterialTheme.shapes.medium,
+                    contentPadding = PaddingValues(horizontal = 12.dp),
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp)
@@ -715,19 +746,57 @@ private fun LineBottomBar(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = stringResource(LineRes.string.line_detail_track_this), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = stringResource(LineRes.string.line_detail_track_this),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
                 }
             }
-            FilledTonalIconButton(
-                onClick = onOpenTransitCode,
-                shape = CircleShape,
-                modifier = Modifier.size(52.dp)
-            ) {
-                Icon(
-                    imageVector = vectorResource(Res.drawable.ic_qr_code),
-                    contentDescription = stringResource(Res.string.transit_code),
-                    modifier = Modifier.size(24.dp)
-                )
+            if (canSwitchDirection) {
+                FilledTonalIconButton(
+                    onClick = onSwitchDirection,
+                    enabled = !isSwitchingDirection,
+                    shape = CircleShape,
+                    // 语义挂在按钮上：转圈时图标没了，读屏也还能读出「换向 · 换向中」
+                    modifier = Modifier
+                        .size(52.dp)
+                        .semantics {
+                            contentDescription = switchDirectionLabel
+                            if (isSwitchingDirection) stateDescription = switchingDirectionLabel
+                        }
+                ) {
+                    if (isSwitchingDirection) {
+                        // 换向要重新拉反向线路：转圈 + 禁用，挡住连点（否则会连改两次线路）
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clearAndSetSemantics { }
+                        )
+                    } else {
+                        Icon(
+                            imageVector = vectorResource(Res.drawable.ic_swap),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+            if (showTransitCode) {
+                FilledTonalIconButton(
+                    onClick = onOpenTransitCode,
+                    shape = CircleShape,
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Icon(
+                        imageVector = vectorResource(Res.drawable.ic_qr_code),
+                        contentDescription = stringResource(Res.string.transit_code),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }

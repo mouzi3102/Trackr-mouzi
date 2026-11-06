@@ -269,6 +269,7 @@ class DefaultBackupRepository(
             city = settings.selectedCity.value,
             engineMode = settings.engineMode.value.name,
             transitCodeProvider = settings.preferredTransitCodeProvider.value.id,
+            showTransitCodeButton = settings.showTransitCodeButton.value,
             nearbyStopsCount = settings.nearbyStopsCount.value,
             liveNotificationEnabled = settings.isLiveNotificationEnabled.value,
             showOnLockScreen = settings.showOnLockScreen.value,
@@ -305,6 +306,7 @@ class DefaultBackupRepository(
         snapshot.transitCodeProvider
             ?.let { id -> TransitCodeProvider.entries.find { it.id == id || it.name == id } }
             ?.let { settings.setPreferredTransitCodeProvider(it) }
+        snapshot.showTransitCodeButton?.let { settings.setShowTransitCodeButton(it) }
         snapshot.nearbyStopsCount?.let { settings.setNearbyStopsCount(it) }
         snapshot.liveNotificationEnabled?.let { settings.setLiveNotificationEnabled(it) }
         snapshot.showOnLockScreen?.let { settings.setShowOnLockScreen(it) }

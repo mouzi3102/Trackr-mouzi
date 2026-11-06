@@ -38,8 +38,9 @@ android {
 
     defaultConfig {
         applicationId = "com.github.u5151561.trackr"
-        versionCode = 13
-        versionName = "0.1.8"
+        // 合并上游 0.1.6（versionCode 10）后继续往上排：必须大于我方 0.1.8 的 13
+        versionCode = 14
+        versionName = "0.1.9"
 
         buildConfigField("String", "AMAP_WEB_KEY", "\"$amapWebServiceKey\"")
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")

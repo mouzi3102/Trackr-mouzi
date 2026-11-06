@@ -242,6 +242,7 @@ class BackupRepositoryScenarioTest {
             settings = SettingsBackup(
                 engineMode = com.trackr.core.model.EngineMode.MYGOLBS.name,
                 transitCodeProvider = TransitCodeProvider.UNIONPAY.id,
+                showTransitCodeButton = false,
                 alertThresholdStops = 9, // 越界：setter 自己夹到 3
                 uiMode = UiMode.Elder.name
             ),
@@ -254,6 +255,8 @@ class BackupRepositoryScenarioTest {
         assertEquals(setOf(RestoredSection.SETTINGS, RestoredSection.SEARCH_HISTORY), outcome.applied)
         assertEquals(EngineMode.MYGOLBS, settings.engineMode.value)
         assertEquals(TransitCodeProvider.UNIONPAY, settings.preferredTransitCodeProvider.value)
+        // 上游 0.1.6 新增的悬浮按钮开关也要能恢复回来
+        assertEquals(false, settings.showTransitCodeButton.value)
         assertEquals(3, settings.alertThresholdStops.value)
         assertEquals(UiMode.Elder, settings.uiMode.value)
         assertEquals(listOf("新A", "旧B"), history.searchHistory.value)
